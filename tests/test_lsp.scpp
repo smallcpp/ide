@@ -1,0 +1,96 @@
+#include "../src/lsp.scpp"
+
+static int failures;
+
+void expect(int cond, const char *msg) {
+    if (cond == 0) {
+        print("fail {:s}\n", msg);
+        failures = failures + 1;
+    }
+}
+
+int main(void) {
+    LspFramer *framer;
+    LspClient *client;
+    LspDiag diags[4];
+    char body[256];
+    char frame[512];
+    long n;
+    long count;
+    long spins;
+    struct timespec delay;
+    const char *json;
+    String *sample;
+    String *echo;
+
+    failures = 0;
+    framer = new LspFramer();
+    json = "{\"ok\":1}";
+    snprintf(
+            frame,
+            512,
+            "Content-Length: %ld\r\n\r\n%s",
+            text_length(json),
+            json);
+    expect(framer->push(frame, 8) == 1, "push head");
+    expect(framer->pop(body, 256, &n) == 0, "incomplete");
+    expect(framer->push(frame + 8, text_length(frame) - 8) == 1,
+            "push tail");
+    expect(framer->pop(body, 256, &n) == 1, "pop");
+    expect(text_same(body, json) == 1, "body");
+    sample = new String();
+    sample->append("{\"diagnostics\":[");
+    sample->append("{\"range\":{\"start\":{\"line\":3}},");
+    sample->append("\"message\":\"missing semicolon\"},");
+    sample->append("{\"range\":{\"start\":{\"line\":7}},");
+    sample->append("\"message\":\"unused\"}]}");
+    count = 0;
+    expect(lsp_parse_diags(sample->c_str(), diags, 4, &count) == 1,
+            "parse");
+    expect(count == 2, "two diags");
+    expect(diags[0].line == 3, "line 3");
+    expect(text_same(diags[0].message, "missing semicolon") == 1,
+            "message");
+    expect(diags[1].line == 7, "line 7");
+    client = new LspClient();
+    expect(client->allowed("", "a.scpp") == 0, "empty off");
+    expect(client->allowed("clangd", "a.scpp") == 0, "clangd scpp");
+    expect(client->allowed("clangd", "a.c") == 1, "clangd c");
+    expect(client->allowed("cwhip-lsp", "a.cw") == 1, "cwhip");
+    expect(client->allowed("cwhip-lsp", "a.c") == 0, "cwhip c");
+    expect(client->allowed("tool", "a.txt") == 0, "plain");
+    expect(client->allowed("tool", "a.scpp") == 1, "other");
+    expect(client->start("cat") == 1, "start cat");
+    echo = new String();
+    echo->append("{\"diagnostics\":[{\"line\":1,");
+    echo->append("\"message\":\"echo\"}]}");
+    snprintf(
+            frame,
+            512,
+            "Content-Length: %ld\r\n\r\n%s",
+            text_length(echo->c_str()),
+            echo->c_str());
+    expect(client->write_raw(frame, text_length(frame)) == 1,
+            "write frame");
+    client->finish_write();
+    delay.tv_sec = 0;
+    delay.tv_nsec = 20000000;
+    spins = 0;
+    while (client->saw_eof() == 0 && spins < 50) {
+        nanosleep(&delay, nullptr);
+        spins = spins + 1;
+    }
+    expect(client->saw_eof() == 1, "echo eof");
+    expect(client->drain() == 1, "drain");
+    expect(client->diag_count() == 1, "one diag");
+    expect(client->diag_line(0) == 1, "echo line");
+    expect(text_same(client->diag_message(0), "echo") == 1,
+            "echo message");
+    client->stop();
+    if (failures == 0) {
+        print("test-lsp ok\n");
+        return 0;
+    }
+    print("test-lsp failed {}\n", failures);
+    return 1;
+}

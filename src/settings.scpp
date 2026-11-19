@@ -1,0 +1,888 @@
+#ifndef IDE_SETTINGS
+#define IDE_SETTINGS
+
+/* User settings and the keyboard map. Missing keys use
+ * the built-in defaults. A bad file keeps the valid keys
+ * and turns automatic saving off.
+ */
+#include "toml.scpp"
+
+enum {
+    IDE_COMMANDS = 43
+};
+
+class Settings {
+public:
+    Settings();
+    void reset_defaults(void);
+    int load_text(const char *text);
+    String *save_text(void);
+    int load_file(const char *path);
+    int save_file(const char *path);
+    int failed(void);
+    int autosave(void);
+    const char *error(void);
+    void set_string(const char *key, const char *value);
+    void set_number(const char *key, long value);
+    void set_flag(const char *key, bool value);
+    const char *get_string(const char *key);
+    long get_number(const char *key);
+    bool get_flag(const char *key);
+    const char *effective_string(
+            const char *key,
+            TomlDoc *project);
+    long effective_number(const char *key, TomlDoc *project);
+    bool effective_flag(const char *key, TomlDoc *project);
+    int set_binding(const char *command, const char *trigger);
+    const char *binding(const char *command);
+    void reset_binding(const char *command);
+    void reset_bindings(void);
+    int import_legacy(const char *text);
+    int command_known(const char *command);
+    const char *command_at(long index);
+    long command_count(void);
+    const char *default_binding(const char *command);
+    int canon_trigger(const char *input, char *dest, long cap);
+    TomlDoc *doc(void);
+private:
+    TomlDoc *file;
+    String *snapshot;
+    int sawFile;
+    int bad;
+    int allowSave;
+    String *errorText;
+    void note(const char *msg);
+    void overlay_defaults(void);
+    int valid_editor(void);
+    int valid_keyboard(void);
+    const char *editor_default(const char *key);
+    int known_editor(const char *key);
+};
+
+const char *ide_command(long index) {
+    if (index == 0)
+        return "new";
+    if (index == 1)
+        return "open";
+    if (index == 2)
+        return "save";
+    if (index == 3)
+        return "save-as";
+    if (index == 4)
+        return "save-all";
+    if (index == 5)
+        return "close";
+    if (index == 6)
+        return "close-all";
+    if (index == 7)
+        return "quit";
+    if (index == 8)
+        return "find";
+    if (index == 9)
+        return "replace";
+    if (index == 10)
+        return "find-project";
+    if (index == 11)
+        return "goto-line";
+    if (index == 12)
+        return "undo";
+    if (index == 13)
+        return "redo";
+    if (index == 14)
+        return "cut";
+    if (index == 15)
+        return "copy";
+    if (index == 16)
+        return "paste";
+    if (index == 17)
+        return "select-all";
+    if (index == 18)
+        return "strip-trailing-spaces";
+    if (index == 19)
+        return "comment";
+    if (index == 20)
+        return "block-comment";
+    if (index == 21)
+        return "indent";
+    if (index == 22)
+        return "outdent";
+    if (index == 23)
+        return "preferences";
+    if (index == 24)
+        return "reload";
+    if (index == 25)
+        return "open-folder";
+    if (index == 26)
+        return "project-new";
+    if (index == 27)
+        return "project-open";
+    if (index == 28)
+        return "project-close";
+    if (index == 29)
+        return "project-save";
+    if (index == 30)
+        return "project-save-as";
+    if (index == 31)
+        return "project-delete";
+    if (index == 32)
+        return "project-configure";
+    if (index == 33)
+        return "about";
+    if (index == 34)
+        return "show-line-numbers";
+    if (index == 35)
+        return "show-whitespace";
+    if (index == 36)
+        return "show-line-ends";
+    if (index == 37)
+        return "show-project-manager";
+    if (index == 38)
+        return "show-indent-markers";
+    if (index == 39)
+        return "insert-column";
+    if (index == 40)
+        return "delete-column";
+    if (index == 41)
+        return "plugin-time";
+    if (index == 42)
+        return "plugin-debug";
+    return "";
+}
+
+const char *ide_default_binding(const char *command) {
+    if (text_same(command, "new") == 1)
+        return "<Control>n";
+    if (text_same(command, "open") == 1)
+        return "<Control>o";
+    if (text_same(command, "save") == 1)
+        return "<Control>s";
+    if (text_same(command, "save-as") == 1)
+        return "<Control><Shift>s";
+    if (text_same(command, "save-all") == 1)
+        return "<Control><Alt>s";
+    if (text_same(command, "close") == 1)
+        return "<Control>w";
+    if (text_same(command, "close-all") == 1)
+        return "<Control><Shift>w";
+    if (text_same(command, "quit") == 1)
+        return "<Control>q";
+    if (text_same(command, "find") == 1)
+        return "<Control>f";
+    if (text_same(command, "replace") == 1)
+        return "<Control>h";
+    if (text_same(command, "find-project") == 1)
+        return "<Control><Shift>f";
+    if (text_same(command, "goto-line") == 1)
+        return "<Control>g";
+    if (text_same(command, "undo") == 1)
+        return "<Control>z";
+    if (text_same(command, "redo") == 1)
+        return "<Control><Shift>z";
+    if (text_same(command, "cut") == 1)
+        return "<Control>x";
+    if (text_same(command, "copy") == 1)
+        return "<Control>c";
+    if (text_same(command, "paste") == 1)
+        return "<Control>v";
+    if (text_same(command, "select-all") == 1)
+        return "<Control>a";
+    if (text_same(command, "preferences") == 1)
+        return "<Control>comma";
+    if (text_same(command, "comment") == 1)
+        return "<Control>slash";
+    if (text_same(command, "indent") == 1)
+        return "Tab";
+    if (text_same(command, "outdent") == 1)
+        return "<Shift>Tab";
+    return "";
+}
+
+Settings::Settings() {
+    file = new TomlDoc();
+    snapshot = new String();
+    sawFile = 0;
+    bad = 0;
+    allowSave = 1;
+    errorText = new String();
+    reset_defaults();
+}
+
+TomlDoc *Settings::doc(void) {
+    return file;
+}
+
+void Settings::note(const char *msg) {
+    bad = 1;
+    allowSave = 0;
+    if (errorText->size() > 0)
+        errorText->append("; ");
+    if (msg != nullptr)
+        errorText->append(msg);
+}
+
+int Settings::failed(void) {
+    return bad;
+}
+
+int Settings::autosave(void) {
+    return allowSave;
+}
+
+const char *Settings::error(void) {
+    return errorText->c_str();
+}
+
+int Settings::command_known(const char *command) {
+    long i;
+
+    i = 0;
+    while (i < IDE_COMMANDS) {
+        if (text_same(ide_command(i), command) == 1)
+            return 1;
+        i = i + 1;
+    }
+    return 0;
+}
+
+const char *Settings::command_at(long index) {
+    return ide_command(index);
+}
+
+long Settings::command_count(void) {
+    return IDE_COMMANDS;
+}
+
+const char *Settings::default_binding(const char *command) {
+    return ide_default_binding(command);
+}
+
+int Settings::known_editor(const char *key) {
+    if (text_same(key, "editor.font_family") == 1)
+        return 1;
+    if (text_same(key, "editor.font_size") == 1)
+        return 1;
+    if (text_same(key, "editor.tab_width") == 1)
+        return 1;
+    if (text_same(key, "editor.insert_spaces") == 1)
+        return 1;
+    if (text_same(key, "editor.line_numbers") == 1)
+        return 1;
+    if (text_same(key, "editor.show_whitespace") == 1)
+        return 1;
+    if (text_same(key, "editor.show_line_ends") == 1)
+        return 1;
+    if (text_same(key, "editor.show_indent_markers") == 1)
+        return 1;
+    if (text_same(key, "editor.show_project_manager") == 1)
+        return 1;
+    if (text_same(key, "editor.wrap") == 1)
+        return 1;
+    if (text_same(key, "editor.right_margin") == 1)
+        return 1;
+    if (text_same(key, "editor.highlight_current_line") == 1)
+        return 1;
+    if (text_same(key, "editor.save_on_tab_loss") == 1)
+        return 1;
+    if (text_same(key, "editor.save_on_window_loss") == 1)
+        return 1;
+    if (text_same(key, "editor.strip_trailing_spaces") == 1)
+        return 1;
+    if (text_same(key, "editor.auto_complete_brackets") == 1)
+        return 1;
+    if (text_same(key, "editor.auto_indent") == 1)
+        return 1;
+    if (text_same(key, "editor.show_unsaved_marks") == 1)
+        return 1;
+    if (text_same(key, "editor.lsp_command") == 1)
+        return 1;
+    if (text_same(key, "project.reopen_last") == 1)
+        return 1;
+    if (text_same(key, "project.last_root") == 1)
+        return 1;
+    return 0;
+}
+
+const char *Settings::editor_default(const char *key) {
+    if (text_same(key, "editor.font_family") == 1)
+        return "monospace";
+    if (text_same(key, "editor.font_size") == 1)
+        return "12";
+    if (text_same(key, "editor.tab_width") == 1)
+        return "4";
+    if (text_same(key, "editor.insert_spaces") == 1)
+        return "true";
+    if (text_same(key, "editor.line_numbers") == 1)
+        return "true";
+    if (text_same(key, "editor.show_project_manager") == 1)
+        return "true";
+    if (text_same(key, "editor.right_margin") == 1)
+        return "80";
+    if (text_same(key, "editor.auto_complete_brackets") == 1)
+        return "true";
+    if (text_same(key, "editor.auto_indent") == 1)
+        return "true";
+    if (text_same(key, "editor.show_unsaved_marks") == 1)
+        return "true";
+    if (text_same(key, "project.reopen_last") == 1)
+        return "false";
+    if (text_same(key, "project.last_root") == 1)
+        return "";
+    return "false";
+}
+
+void Settings::overlay_defaults(void) {
+    long i;
+    String *key;
+
+    if (file->has("version") == 0)
+        file->set("version", "1");
+    if (file->has("editor.font_family") == 0)
+        file->set("editor.font_family", "monospace");
+    if (file->has("editor.font_size") == 0)
+        file->set("editor.font_size", "12");
+    if (file->has("editor.tab_width") == 0)
+        file->set("editor.tab_width", "4");
+    if (file->has("editor.insert_spaces") == 0)
+        file->set("editor.insert_spaces", "true");
+    if (file->has("editor.line_numbers") == 0)
+        file->set("editor.line_numbers", "true");
+    if (file->has("editor.show_whitespace") == 0)
+        file->set("editor.show_whitespace", "false");
+    if (file->has("editor.show_line_ends") == 0)
+        file->set("editor.show_line_ends", "false");
+    if (file->has("editor.show_indent_markers") == 0)
+        file->set("editor.show_indent_markers", "false");
+    if (file->has("editor.show_project_manager") == 0)
+        file->set("editor.show_project_manager", "true");
+    if (file->has("editor.wrap") == 0)
+        file->set("editor.wrap", "false");
+    if (file->has("editor.right_margin") == 0)
+        file->set("editor.right_margin", "80");
+    if (file->has("editor.highlight_current_line") == 0)
+        file->set("editor.highlight_current_line", "false");
+    if (file->has("editor.save_on_tab_loss") == 0)
+        file->set("editor.save_on_tab_loss", "false");
+    if (file->has("editor.save_on_window_loss") == 0)
+        file->set("editor.save_on_window_loss", "false");
+    if (file->has("editor.strip_trailing_spaces") == 0)
+        file->set("editor.strip_trailing_spaces", "false");
+    if (file->has("editor.auto_complete_brackets") == 0)
+        file->set("editor.auto_complete_brackets", "true");
+    if (file->has("editor.auto_indent") == 0)
+        file->set("editor.auto_indent", "true");
+    if (file->has("editor.show_unsaved_marks") == 0)
+        file->set("editor.show_unsaved_marks", "true");
+    if (file->has("editor.lsp_command") == 0)
+        file->set("editor.lsp_command", "");
+    if (file->has("project.reopen_last") == 0)
+        file->set("project.reopen_last", "false");
+    if (file->has("project.last_root") == 0)
+        file->set("project.last_root", "");
+    i = 0;
+    while (i < IDE_COMMANDS) {
+        key = new String();
+        key->append("keyboard.");
+        key->append(ide_command(i));
+        if (file->has(key->c_str()) == 0)
+            file->set(key->c_str(), ide_default_binding(ide_command(i)));
+        i = i + 1;
+    }
+}
+
+void Settings::reset_defaults(void) {
+    file = new TomlDoc();
+    bad = 0;
+    allowSave = 1;
+    errorText = new String();
+    overlay_defaults();
+}
+
+void Settings::set_string(const char *key, const char *value) {
+    file->set(key, value);
+}
+
+void Settings::set_number(const char *key, long value) {
+    char buf[32];
+
+    snprintf(buf, 32, "%ld", value);
+    file->set(key, buf);
+}
+
+void Settings::set_flag(const char *key, bool value) {
+    if (value == true)
+        file->set(key, "true");
+    else
+        file->set(key, "false");
+}
+
+const char *Settings::get_string(const char *key) {
+    if (file->has(key) == 0)
+        return editor_default(key);
+    return file->get(key);
+}
+
+long Settings::get_number(const char *key) {
+    const char *text;
+
+    text = get_string(key);
+    return atol(text);
+}
+
+bool Settings::get_flag(const char *key) {
+    if (text_same(get_string(key), "true") == 1)
+        return true;
+    return false;
+}
+
+const char *Settings::effective_string(
+        const char *key,
+        TomlDoc *project) {
+    if (project != nullptr && project->has(key) == 1)
+        return project->get(key);
+    return get_string(key);
+}
+
+long Settings::effective_number(const char *key, TomlDoc *project) {
+    return atol(effective_string(key, project));
+}
+
+bool Settings::effective_flag(const char *key, TomlDoc *project) {
+    if (text_same(effective_string(key, project), "true") == 1)
+        return true;
+    return false;
+}
+
+int Settings::canon_trigger(
+        const char *input,
+        char *dest,
+        long cap) {
+    long i;
+    int control;
+    int alt;
+    int shift;
+    char name[32];
+    long n;
+    int ch;
+
+    if (dest == nullptr || cap < 1)
+        return 0;
+    dest[0] = 0;
+    if (input == nullptr || input[0] == 0)
+        return 1;
+    i = 0;
+    control = 0;
+    alt = 0;
+    shift = 0;
+    while (input[i] == '<') {
+        i = i + 1;
+        n = 0;
+        while (input[i] != 0 && input[i] != '>' && n < 30) {
+            name[n] = input[i];
+            n = n + 1;
+            i = i + 1;
+        }
+        name[n] = 0;
+        if (input[i] != '>')
+            return 0;
+        i = i + 1;
+        if (text_same(name, "Control") == 1) {
+            if (control == 1)
+                return 0;
+            control = 1;
+        }
+        else if (text_same(name, "Alt") == 1) {
+            if (alt == 1)
+                return 0;
+            alt = 1;
+        }
+        else if (text_same(name, "Shift") == 1) {
+            if (shift == 1)
+                return 0;
+            shift = 1;
+        }
+        else
+            return 0;
+    }
+    n = 0;
+    while (input[i] != 0 && n < 30) {
+        name[n] = input[i];
+        n = n + 1;
+        i = i + 1;
+    }
+    name[n] = 0;
+    if (input[i] != 0 || n == 0)
+        return 0;
+    if (n == 1) {
+        ch = name[0];
+        if (ch >= 'A' && ch <= 'Z')
+            name[0] = (char)(ch - 'A' + 'a');
+    }
+    else if (text_same(name, "comma") == 0
+            && text_same(name, "slash") == 0
+            && text_same(name, "Tab") == 0
+            && text_same(name, "space") == 0
+            && text_same(name, "Return") == 0)
+        return 0;
+    n = 0;
+    if (control == 1) {
+        text_copy(dest + n, cap - n, "<Control>");
+        n = text_length(dest);
+    }
+    if (alt == 1) {
+        text_copy(dest + n, cap - n, "<Alt>");
+        n = text_length(dest);
+    }
+    if (shift == 1) {
+        text_copy(dest + n, cap - n, "<Shift>");
+        n = text_length(dest);
+    }
+    if (n + text_length(name) + 1 > cap)
+        return 0;
+    text_copy(dest + n, cap - n, name);
+    return 1;
+}
+
+const char *Settings::binding(const char *command) {
+    String *key;
+
+    key = new String();
+    key->append("keyboard.");
+    key->append(command);
+    if (file->has(key->c_str()) == 0)
+        return ide_default_binding(command);
+    return file->get(key->c_str());
+}
+
+int Settings::set_binding(const char *command, const char *trigger) {
+    char canon[80];
+    long i;
+    String *key;
+
+    if (command_known(command) == 0) {
+        errorText->truncate(0, errorText->size());
+        errorText->append("unknown command");
+        return 0;
+    }
+    if (canon_trigger(trigger, canon, 80) == 0) {
+        errorText->truncate(0, errorText->size());
+        errorText->append("invalid shortcut");
+        return 0;
+    }
+    if (canon[0] != 0) {
+        i = 0;
+        while (i < IDE_COMMANDS) {
+            if (text_same(ide_command(i), command) == 0
+                    && text_same(binding(ide_command(i)), canon) == 1) {
+                errorText->truncate(0, errorText->size());
+                errorText->append("shortcut conflict");
+                return 0;
+            }
+            i = i + 1;
+        }
+    }
+    key = new String();
+    key->append("keyboard.");
+    key->append(command);
+    file->set(key->c_str(), canon);
+    return 1;
+}
+
+void Settings::reset_binding(const char *command) {
+    const char *want;
+    long i;
+
+    want = ide_default_binding(command);
+    i = 0;
+    while (i < IDE_COMMANDS) {
+        if (text_same(ide_command(i), command) == 0
+                && want[0] != 0
+                && text_same(binding(ide_command(i)), want) == 1)
+            return;
+        i = i + 1;
+    }
+    set_binding(command, want);
+}
+
+void Settings::reset_bindings(void) {
+    long i;
+    String *key;
+
+    i = 0;
+    while (i < IDE_COMMANDS) {
+        key = new String();
+        key->append("keyboard.");
+        key->append(ide_command(i));
+        file->set(key->c_str(), ide_default_binding(ide_command(i)));
+        i = i + 1;
+    }
+}
+
+int Settings::import_legacy(const char *text) {
+    long i;
+    long n;
+    long start;
+    long eq;
+    String *trigger;
+    String *command;
+    int any;
+
+    if (text == nullptr)
+        return 0;
+    i = 0;
+    while (i < IDE_COMMANDS) {
+        String *key;
+
+        key = new String();
+        key->append("keyboard.");
+        key->append(ide_command(i));
+        file->set(key->c_str(), "");
+        i = i + 1;
+    }
+    n = text_length(text);
+    i = 0;
+    any = 0;
+    while (i < n) {
+        start = i;
+        while (i < n && text[i] != '\n')
+            i = i + 1;
+        if (i > start && text[start] != '#') {
+            eq = start;
+            while (eq < i && text[eq] != '=')
+                eq = eq + 1;
+            if (eq > start && eq + 1 < i) {
+                trigger = slice_text(text, start, eq);
+                command = slice_text(text, eq + 1, i);
+                if (command->size() > 0
+                        && command->at(command->size() - 1) == '\r')
+                    command->truncate(
+                            command->size() - 1,
+                            command->size());
+                any = 1;
+                if (set_binding(
+                            command->c_str(),
+                            trigger->c_str()) == 0) {
+                    note(errorText->c_str());
+                    return 0;
+                }
+            }
+        }
+        if (i < n && text[i] == '\n')
+            i = i + 1;
+    }
+    if (any == 0)
+        return 1;
+    if (text_same(binding("preferences"), "") == 1) {
+        int used;
+
+        used = 0;
+        i = 0;
+        while (i < IDE_COMMANDS) {
+            if (text_same(
+                        binding(ide_command(i)),
+                        "<Control>comma") == 1)
+                used = 1;
+            i = i + 1;
+        }
+        if (used == 0)
+            set_binding("preferences", "<Control>comma");
+    }
+    return 1;
+}
+
+int Settings::valid_editor(void) {
+    const char *family;
+    long n;
+    long i;
+    long size;
+    long tab;
+    long margin;
+    int ch;
+
+    family = get_string("editor.font_family");
+    n = text_length(family);
+    if (n < 1 || n > 128 || utf8_ok(family, n) == 0) {
+        note("font family");
+        file->set("editor.font_family", "monospace");
+    }
+    i = 0;
+    while (i < n) {
+        ch = byte_at(family, i);
+        if (ch < 32) {
+            note("font family");
+            file->set("editor.font_family", "monospace");
+            break;
+        }
+        i = i + 1;
+    }
+    size = get_number("editor.font_size");
+    if (size < 6 || size > 72) {
+        note("font size");
+        file->set("editor.font_size", "12");
+    }
+    tab = get_number("editor.tab_width");
+    if (tab < 1 || tab > 16) {
+        note("tab width");
+        file->set("editor.tab_width", "4");
+    }
+    margin = get_number("editor.right_margin");
+    if (margin < 0 || margin > 500) {
+        note("right margin");
+        file->set("editor.right_margin", "80");
+    }
+    return allowSave;
+}
+
+int Settings::valid_keyboard(void) {
+    long i;
+    char canon[80];
+    const char *have;
+
+    if (file->has("version") == 1
+            && text_same(file->get("version"), "1") == 0)
+        note("version");
+    i = 0;
+    while (i < file->count()) {
+        const char *key;
+
+        key = file->key_at(i);
+        if (text_starts(key, "keyboard.") == 1) {
+            if (command_known(key + 9) == 0) {
+                note("unknown command");
+                file->remove_key(key);
+                i = 0;
+                continue;
+            }
+        }
+        i = i + 1;
+    }
+    i = 0;
+    while (i < IDE_COMMANDS) {
+        have = binding(ide_command(i));
+        if (canon_trigger(have, canon, 80) == 0) {
+            note("invalid shortcut");
+            file->set(
+                    format("keyboard.{:s}", ide_command(i)),
+                    "");
+        }
+        else if (text_same(have, canon) == 0)
+            file->set(
+                    format("keyboard.{:s}", ide_command(i)),
+                    canon);
+        i = i + 1;
+    }
+    i = 0;
+    while (i < IDE_COMMANDS) {
+        long j;
+
+        have = binding(ide_command(i));
+        if (have[0] != 0) {
+            j = i + 1;
+            while (j < IDE_COMMANDS) {
+                if (text_same(binding(ide_command(j)), have) == 1) {
+                    note("shortcut conflict");
+                    file->set(
+                            format("keyboard.{:s}", ide_command(j)),
+                            "");
+                }
+                j = j + 1;
+            }
+        }
+        i = i + 1;
+    }
+    return allowSave;
+}
+
+int Settings::load_text(const char *text) {
+    int parsed;
+
+    file = new TomlDoc();
+    bad = 0;
+    allowSave = 1;
+    errorText = new String();
+    parsed = file->parse(text);
+    if (parsed == 0)
+        note(file->error());
+    overlay_defaults();
+    valid_editor();
+    valid_keyboard();
+    if (bad == 0)
+        return 1;
+    return 0;
+}
+
+String *Settings::save_text(void) {
+    if (file->has("version") == 0)
+        file->set("version", "1");
+    return file->write_text();
+}
+
+int Settings::load_file(const char *path) {
+    char *raw;
+    long n;
+    const char *io;
+
+    io = "";
+    raw = read_file(path, &n, &io);
+    if (raw == nullptr) {
+        if (text_same(io, "open failed") == 1) {
+            sawFile = 0;
+            snapshot = new String();
+            reset_defaults();
+            return 1;
+        }
+        note(io);
+        return 0;
+    }
+    if (n > 65536) {
+        note("settings too large");
+        return 0;
+    }
+    sawFile = 1;
+    snapshot = new String();
+    snapshot->append(raw);
+    return load_text(raw);
+}
+
+int Settings::save_file(const char *path) {
+    char *raw;
+    long n;
+    const char *io;
+    String *body;
+    char dir[IDE_PATH];
+
+    if (allowSave == 0) {
+        note("saving disabled");
+        return 0;
+    }
+    if (sawFile == 1) {
+        io = "";
+        raw = read_file(path, &n, &io);
+        if (raw == nullptr || text_same(raw, snapshot->c_str()) == 0) {
+            note("settings changed on disk");
+            allowSave = 0;
+            return 0;
+        }
+    }
+    else if (file_exists(path) == 1) {
+        note("settings changed on disk");
+        allowSave = 0;
+        return 0;
+    }
+    path_dir(dir, IDE_PATH, path);
+    if (text_same(dir, ".") == 0 && ensure_dir(dir) == 0) {
+        note("save failed");
+        return 0;
+    }
+    body = save_text();
+    io = "";
+    if (write_file(path, body->c_str(), &io) == 0) {
+        note(io);
+        return 0;
+    }
+    snapshot = new String();
+    snapshot->append(body);
+    sawFile = 1;
+    return 1;
+}
+
+#endif

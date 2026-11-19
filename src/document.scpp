@@ -1,0 +1,218 @@
+#ifndef IDE_DOCUMENT
+#define IDE_DOCUMENT
+
+/* One open file. The buffer is the text the user edits.
+ * loaded remembers the bytes last read or written so a
+ * later disk check can see an outside change.
+ */
+#include "buffer.scpp"
+
+class Document {
+public:
+    Document();
+    int load_path(const char *path);
+    int save_file(bool strip);
+    int save_as(const char *path, bool strip);
+    int reload_file(void);
+    int disk_differs(void);
+    const char *path(void);
+    int untitled(void);
+    const char *title(void);
+    const char *language(void);
+    EditBuffer *buffer(void);
+    const char *error(void);
+    void rename_untitled(void);
+private:
+    String *filePath;
+    String *titleText;
+    String *loaded;
+    String *lang;
+    String *errorText;
+    EditBuffer *body;
+    int isUntitled;
+    void set_error(const char *msg);
+    int take_bytes(const char *path, char *raw, long n);
+    void remember(void);
+    void apply_name(const char *path);
+};
+
+Document::Document() {
+    filePath = new String();
+    titleText = new String();
+    titleText->append("untitled.scpp");
+    loaded = new String();
+    lang = new String();
+    lang->append("scpp");
+    errorText = new String();
+    body = new EditBuffer();
+    isUntitled = 1;
+}
+
+void Document::set_error(const char *msg) {
+    errorText->truncate(0, errorText->size());
+    if (msg != nullptr)
+        errorText->append(msg);
+}
+
+const char *Document::error(void) {
+    return errorText->c_str();
+}
+
+const char *Document::path(void) {
+    return filePath->c_str();
+}
+
+int Document::untitled(void) {
+    return isUntitled;
+}
+
+const char *Document::title(void) {
+    return titleText->c_str();
+}
+
+const char *Document::language(void) {
+    return lang->c_str();
+}
+
+EditBuffer *Document::buffer(void) {
+    return body;
+}
+
+void Document::apply_name(const char *path) {
+    char copy[IDE_PATH];
+
+    if (path == nullptr)
+        copy[0] = 0;
+    else
+        text_copy(copy, IDE_PATH, path);
+    filePath->truncate(0, filePath->size());
+    titleText->truncate(0, titleText->size());
+    lang->truncate(0, lang->size());
+    if (copy[0] == 0) {
+        isUntitled = 1;
+        titleText->append("untitled.scpp");
+        lang->append("scpp");
+        return;
+    }
+    isUntitled = 0;
+    filePath->append(copy);
+    titleText->append(path_base(copy));
+    lang->append(language_of(copy));
+}
+
+void Document::remember(void) {
+    loaded = new String();
+    loaded->append(body->text());
+}
+
+int Document::take_bytes(const char *path, char *raw, long n) {
+    if (bytes_have_nul(raw, n) == 1) {
+        set_error("not a text file");
+        return 0;
+    }
+    if (utf8_ok(raw, n) == 0) {
+        set_error("not a text file");
+        return 0;
+    }
+    body->set_text(raw);
+    apply_name(path);
+    remember();
+    set_error("");
+    return 1;
+}
+
+int Document::load_path(const char *path) {
+    char *raw;
+    long n;
+    const char *io;
+
+    io = "";
+    raw = read_file(path, &n, &io);
+    if (raw == nullptr) {
+        set_error(io);
+        return 0;
+    }
+    return take_bytes(path, raw, n);
+}
+
+int Document::save_file(bool strip) {
+    const char *io;
+
+    if (isUntitled == 1) {
+        set_error("untitled");
+        return 0;
+    }
+    if (strip == true)
+        body->strip_trailing();
+    io = "";
+    if (write_file(filePath->c_str(), body->text(), &io) == 0) {
+        set_error(io);
+        return 0;
+    }
+    remember();
+    body->mark_clean();
+    set_error("");
+    return 1;
+}
+
+int Document::save_as(const char *path, bool strip) {
+    if (path == nullptr || path[0] == 0) {
+        set_error("missing path");
+        return 0;
+    }
+    if (path_has_scheme(path) == 1) {
+        set_error("not a local path");
+        return 0;
+    }
+    apply_name(path);
+    return save_file(strip);
+}
+
+int Document::reload_file(void) {
+    char *raw;
+    long n;
+    const char *io;
+    long line;
+    long column;
+
+    if (isUntitled == 1) {
+        set_error("untitled");
+        return 0;
+    }
+    io = "";
+    raw = read_file(filePath->c_str(), &n, &io);
+    if (raw == nullptr) {
+        set_error(io);
+        return 0;
+    }
+    line = body->cursor_line();
+    column = body->cursor_column();
+    if (take_bytes(filePath->c_str(), raw, n) == 0)
+        return 0;
+    body->move_to(line, column);
+    return 1;
+}
+
+int Document::disk_differs(void) {
+    char *raw;
+    long n;
+    const char *io;
+
+    if (isUntitled == 1)
+        return 0;
+    io = "";
+    raw = read_file(filePath->c_str(), &n, &io);
+    if (raw == nullptr)
+        return 1;
+    if (bytes_have_nul(raw, n) == 1 || utf8_ok(raw, n) == 0)
+        return 1;
+    if (text_same(raw, loaded->c_str()) == 1)
+        return 0;
+    return 1;
+}
+
+void Document::rename_untitled(void) {
+    apply_name(nullptr);
+}
+
+#endif

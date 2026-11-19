@@ -1,0 +1,115 @@
+#include "../src/project.scpp"
+
+static int failures;
+
+void expect(int cond, const char *msg) {
+    if (cond == 0) {
+        print("fail {:s}\n", msg);
+        failures = failures + 1;
+    }
+}
+
+extern int symlink(const char *target, const char *linkpath);
+
+int main(void) {
+    char pattern[64];
+    char other[64];
+    char *dir;
+    char *copy;
+    char path[IDE_PATH];
+    char side[IDE_PATH];
+    Project *project;
+    const char *io;
+    int made;
+
+    failures = 0;
+    text_copy(pattern, 64, "/tmp/ide-proj-XXXXXX");
+    dir = mkdtemp(pattern);
+    expect(dir != nullptr, "temp");
+    if (dir == nullptr)
+        return 1;
+    project = new Project();
+    made = project->create_at(dir, 0);
+    expect(made == 1, "create");
+    expect(project->is_project() == 1, "is project");
+    expect(text_same(project->name(), path_base(dir)) == 1, "name");
+    expect(project->create_at(dir, 0) == 2, "needs replace");
+    project->set_name("Demo");
+    project->set_exclude_text("build, *.log");
+    path_join(path, IDE_PATH, dir, "src");
+    expect(ensure_dir(path) == 1, "src dir");
+    path_join(path, IDE_PATH, path, "a.scpp");
+    io = "";
+    expect(write_file(path, "int main\n", &io) == 1, "source");
+    expect(project->add_file(path, 2, 3) == 1, "remember file");
+    expect(project->add_expanded("src") == 1, "expanded");
+    project->set_layout(800, 600, 240);
+    expect(project->save_project() == 1, "save");
+    project = new Project();
+    expect(project->open_root(dir) == 1, "reopen");
+    expect(text_same(project->name(), "Demo") == 1, "saved name");
+    expect(project->excluded("src/a.log", "a.log") == 1, "exclude name");
+    expect(project->excluded("src/a.scpp", "a.scpp") == 0, "keep source");
+    expect(project->file_count() == 1, "one file");
+    expect(text_same(project->file_at(0), "src/a.scpp") == 1,
+            "relative file");
+    expect(project->file_line(0) == 2, "line");
+    expect(project->expanded_count() == 1, "one folder");
+    expect(project->window_width() == 800, "width");
+    text_copy(other, 64, "/tmp/ide-copy-XXXXXX");
+    copy = mkdtemp(other);
+    path_join(path, IDE_PATH, copy, "src");
+    ensure_dir(path);
+    path_join(side, IDE_PATH, path, "a.scpp");
+    expect(write_file(side, "int main\n", &io) == 1, "copy source");
+    expect(project->save_copy(copy, 0) == 1, "save copy");
+    expect(text_same(project->root(), copy) == 1
+            || text_same(path_base(project->root()), path_base(copy)) == 1,
+            "copy is active");
+    expect(project->file_count() == 1, "file kept");
+    project->remove_metadata();
+    expect(project->is_project() == 0, "deleted");
+    path_join(path, IDE_PATH, dir, ".side");
+    path_join(side, IDE_PATH, path, "project.toml");
+    unlink(side);
+    path_join(side, IDE_PATH, path, "workspace.toml");
+    unlink(side);
+    rmdir(path);
+    path_join(side, IDE_PATH, dir, "link-target");
+    ensure_dir(side);
+    path_join(path, IDE_PATH, dir, ".side");
+    expect(symlink(side, path) == 0, "made symlink");
+    project = new Project();
+    expect(project->create_at(dir, 1) == 0, "refuse symlink");
+    expect(text_same(project->error(), "symlink") == 1, "symlink error");
+    unlink(path);
+    rmdir(side);
+    path_join(path, IDE_PATH, dir, "src");
+    path_join(side, IDE_PATH, path, "a.scpp");
+    unlink(side);
+    rmdir(path);
+    path_join(path, IDE_PATH, dir, ".side");
+    path_join(side, IDE_PATH, path, "project.toml");
+    unlink(side);
+    path_join(side, IDE_PATH, path, "workspace.toml");
+    unlink(side);
+    rmdir(path);
+    rmdir(dir);
+    path_join(path, IDE_PATH, copy, "src");
+    path_join(side, IDE_PATH, path, "a.scpp");
+    unlink(side);
+    rmdir(path);
+    path_join(path, IDE_PATH, copy, ".side");
+    path_join(side, IDE_PATH, path, "project.toml");
+    unlink(side);
+    path_join(side, IDE_PATH, path, "workspace.toml");
+    unlink(side);
+    rmdir(path);
+    rmdir(copy);
+    if (failures == 0) {
+        print("test-project ok\n");
+        return 0;
+    }
+    print("test-project failed {}\n", failures);
+    return 1;
+}

@@ -1,0 +1,66 @@
+#include "../src/toml.scpp"
+
+static int failures;
+
+void expect(int cond, const char *msg) {
+    if (cond == 0) {
+        print("fail {:s}\n", msg);
+        failures = failures + 1;
+    }
+}
+
+int main(void) {
+    TomlDoc *doc;
+    TomlDoc *again;
+    String *sample;
+
+    failures = 0;
+    doc = new TomlDoc();
+    sample = new String();
+    sample->append("version = 1\n\n");
+    sample->append("[editor]\n");
+    sample->append("font_family = \"monospace\"\n");
+    sample->append("font_size = 12\n");
+    sample->append("insert_spaces = true\n\n");
+    sample->append("[explorer]\n");
+    sample->append("exclude = [\"build\", \"*.log\"]\n\n");
+    sample->append("[workspace]\n");
+    sample->append("files = [\n");
+    sample->append(
+            "    { path = \"src/a.scpp\", line = 2, column = 3 }\n");
+    sample->append("]\n");
+    expect(doc->parse(sample->c_str()) == 1, "parse");
+    expect(text_same(doc->get("version"), "1") == 1, "version");
+    expect(text_same(doc->get("editor.font_family"), "monospace") == 1,
+            "family");
+    expect(text_same(doc->get("editor.font_size"), "12") == 1, "size");
+    expect(text_same(doc->get("editor.insert_spaces"), "true") == 1,
+            "flag");
+    expect(text_same(doc->get("explorer.exclude#0"), "build") == 1,
+            "exclude 0");
+    expect(text_same(doc->get("explorer.exclude#1"), "*.log") == 1,
+            "exclude 1");
+    expect(text_same(doc->get("workspace.files#0.path"), "src/a.scpp") == 1,
+            "file path");
+    expect(text_same(doc->get("workspace.files#0.line"), "2") == 1,
+            "file line");
+    again = new TomlDoc();
+    expect(again->parse(doc->write_text()->c_str()) == 1, "rewrite");
+    expect(text_same(again->get("editor.font_size"), "12") == 1,
+            "rewritten size");
+    expect(text_same(
+            again->get("workspace.files#0.column"),
+            "3") == 1,
+            "rewritten column");
+    doc = new TomlDoc();
+    expect(doc->parse("version = 2\n") == 1, "other version parses");
+    doc = new TomlDoc();
+    expect(doc->parse("font = \"unterminated\n") == 0, "bad string");
+    expect(doc->ok() == 0, "not ok");
+    if (failures == 0) {
+        print("test-toml ok\n");
+        return 0;
+    }
+    print("test-toml failed {}\n", failures);
+    return 1;
+}

@@ -1,0 +1,44 @@
+#include "ui.scpp"
+
+int main(int argc, char **argv) {
+    int kind;
+    const char *message;
+    Session *session;
+    Ui *ui;
+    int i;
+    int code;
+
+    kind = ide_classify_args(argc, argv, &message);
+    if (kind == 1) {
+        ide_write_help();
+        return 0;
+    }
+    if (kind == 2) {
+        fputs("ide 0.0.1\n", stdout);
+        return 0;
+    }
+    if (kind < 0) {
+        fputs(message, stderr);
+        return 2;
+    }
+    session = new Session();
+    session->load_settings();
+    i = 1;
+    while (i < argc) {
+        if (argv[i] != nullptr && argv[i][0] != '-')
+            session->open_argument(argv[i]);
+        i = i + 1;
+    }
+    session->reopen_or_new();
+    ui = new Ui(session);
+    try {
+        code = ui->start();
+    } catch (Exception error) {
+        fputs("ide: error[IDE3001]: ", stderr);
+        if (error.message != nullptr)
+            fputs(error.message, stderr);
+        fputs("\n", stderr);
+        return 1;
+    }
+    return code;
+}

@@ -1,0 +1,1799 @@
+#ifndef IDE_SESSION
+#define IDE_SESSION
+
+/* Headless editor state. The window calls these methods.
+ * Choices come back through answer() and provide_path().
+ */
+#include "document.scpp"
+#include "explorer.scpp"
+#include "lsp.scpp"
+
+enum {
+    IDE_OK = 0,
+    IDE_FAILED = 1,
+    IDE_CANCELLED = 2,
+    IDE_NEEDS_CHOICE = 3,
+    IDE_NEEDS_PATH = 4,
+    IDE_CHOOSE_OPEN = 5,
+    IDE_CHOOSE_SAVE = 6,
+    IDE_CHOOSE_FOLDER = 7
+};
+
+enum {
+    IDE_SAVE = 1,
+    IDE_DISCARD = 2,
+    IDE_CANCEL = 3,
+    IDE_CONTINUE = 4
+};
+
+enum {
+    PEND_NONE = 0,
+    PEND_CLOSE = 1,
+    PEND_CLOSE_ALL = 2,
+    PEND_QUIT = 3,
+    PEND_OPEN_PROJECT = 4,
+    PEND_WORKSPACE = 5
+};
+
+enum {
+    RESUME_NONE = 0,
+    RESUME_FOLDER = 1,
+    RESUME_NEW_PROJECT = 2,
+    RESUME_SAVE_AS = 3,
+    RESUME_CLOSE_PROJECT = 4,
+    RESUME_QUIT = 5,
+    RESUME_OPEN = 6
+};
+
+VECTOR(DocVec, Document *)
+
+class SearchHit {
+public:
+    String *path;
+    long line;
+    String *text;
+};
+
+VECTOR(HitVec, SearchHit *)
+
+class Session {
+public:
+    Session();
+    Document *active(void);
+    long count(void);
+    Document *at(long index);
+    long index(void);
+    void set_index(long index);
+    int new_file(void);
+    int open_file(const char *path);
+    int open_argument(const char *path);
+    int save_active(void);
+    int save_as(const char *path);
+    int save_all(void);
+    void allow_overwrite(int value);
+    int close_active(void);
+    int close_all(void);
+    int quit(void);
+    int answer(int choice);
+    int provide_path(const char *path);
+    int run(const char *command);
+    int quit_ready(void);
+    int pending(void);
+    const char *status(void);
+    const char *error(void);
+    long recent_count(void);
+    const char *recent_at(long index);
+    void set_query(const char *text);
+    void set_replacement(const char *text);
+    void set_match_case(bool value);
+    void set_whole_word(bool value);
+    void set_in_selection(bool value);
+    const char *query(void);
+    int begin_find(void);
+    int find_again(void);
+    int replace_one(void);
+    int replace_every(void);
+    void goto_line(const char *spec);
+    Settings *settings(void);
+    Project *project(void);
+    Explorer *explorer(void);
+    LspClient *lsp(void);
+    int open_folder(const char *path);
+    int project_new(const char *path, int replace);
+    int project_open(const char *path);
+    int project_close(void);
+    int project_save(void);
+    int project_save_as(const char *path, int replace);
+    int project_delete(void);
+    int project_configure(const char *csv);
+    void set_view_flag(const char *key, bool value);
+    bool view_flag(const char *key);
+    int search_project(const char *text);
+    long hit_count(void);
+    const char *hit_path(long index);
+    long hit_line(long index);
+    const char *hit_text(long index);
+    int snapshot_recovery(void);
+    int recovery_pending(void);
+    const char *recovery_path(void);
+    int restore_recovery(void);
+    int discard_recovery(void);
+    void poll_disk(void);
+    void apply_editor_prefs(void);
+    void use_config_dir(const char *dir);
+    int load_settings(void);
+    int save_settings(void);
+    const char *settings_path(void);
+    void plugin_time(void);
+    void plugin_debug(void);
+    int clipboard_copy(void);
+    int clipboard_cut(void);
+    int clipboard_paste(void);
+    const char *clipboard(void);
+    void save_on_window_loss(void);
+    int reopen_or_new(void);
+    int show_preferences(void);
+    int show_about(void);
+    int chooser(void);
+private:
+    DocVec *docs;
+    long activeIndex;
+    Settings *prefs;
+    Project *proj;
+    Explorer *tree;
+    LspClient *client;
+    HitVec *hits;
+    String *recent[20];
+    long recentN;
+    String *queryText;
+    String *replaceText;
+    String *clip;
+    String *errorText;
+    String *statusText;
+    String *configDir;
+    String *resumePath;
+    String *settingsFile;
+    String *recoveryFile;
+    int pend;
+    int resumeKind;
+    int resumeReplace;
+    int quitReady;
+    int allowOverwrite;
+    int workspaceBypass;
+    int recoveryOn;
+    int openedArgs;
+    int prefsOpen;
+    int aboutOpen;
+    int choose;
+    bool matchCase;
+    bool wholeWord;
+    bool inSelection;
+    void set_error(const char *msg);
+    void remember_recent(const char *path);
+    int next_dirty(void);
+    int advance(void);
+    void drop_one(long index);
+    void ensure_document(void);
+    int prepare_switch(int kind, const char *path, int replace);
+    int after_workspace(void);
+    int open_folder_now(const char *path);
+    int project_new_now(const char *path, int replace);
+    int project_save_as_now(const char *path, int replace);
+    int project_close_now(void);
+    int finish_open_project(void);
+    int load_project(const char *path);
+    void capture_workspace(void);
+    void fill_settings_path(char *dest);
+    void load_local(void);
+    int recovery_file(Document *doc, char *dest);
+    void consider_recovery(Document *doc);
+    void search_dir(
+            const char *dir,
+            const char *rel,
+            const char *text,
+            int depth);
+    int save_named(Document *doc);
+    void poll_command_views(const char *command);
+};
+
+void ide_write_help(void) {
+    fputs("usage: ide [file or folder]...\n", stdout);
+    fputs("  --help       show this help\n", stdout);
+    fputs("  --version    show 0.0.1\n", stdout);
+    fputs("Opens files and folders. A folder with\n", stdout);
+    fputs(".side/project.toml opens as a project.\n", stdout);
+}
+
+int ide_classify_args(
+        int argc,
+        char **argv,
+        const char **message) {
+    int i;
+
+    if (message != nullptr)
+        *message = "";
+    i = 1;
+    while (i < argc) {
+        if (argv[i] != nullptr && argv[i][0] == '-') {
+            if (text_same(argv[i], "--help") == 1
+                    || text_same(argv[i], "-h") == 1) {
+                if (message != nullptr)
+                    *message = "help";
+                return 1;
+            }
+            if (text_same(argv[i], "--version") == 1
+                    || text_same(argv[i], "-V") == 1) {
+                if (message != nullptr)
+                    *message = "version";
+                return 2;
+            }
+            if (message != nullptr)
+                *message =
+                        "ide: error[IDE0001]: unknown option\n";
+            return -1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+Session::Session() {
+    long i;
+
+    docs = new DocVec();
+    activeIndex = 0;
+    prefs = new Settings();
+    proj = new Project();
+    tree = new Explorer();
+    client = new LspClient();
+    hits = new HitVec();
+    i = 0;
+    while (i < 20) {
+        recent[i] = nullptr;
+        i = i + 1;
+    }
+    recentN = 0;
+    queryText = new String();
+    replaceText = new String();
+    clip = new String();
+    errorText = new String();
+    statusText = new String();
+    configDir = new String();
+    resumePath = new String();
+    settingsFile = new String();
+    recoveryFile = new String();
+    pend = PEND_NONE;
+    resumeKind = RESUME_NONE;
+    resumeReplace = 0;
+    quitReady = 0;
+    allowOverwrite = 0;
+    workspaceBypass = 0;
+    recoveryOn = 0;
+    openedArgs = 0;
+    prefsOpen = 0;
+    aboutOpen = 0;
+    choose = 0;
+    matchCase = false;
+    wholeWord = false;
+    inSelection = false;
+}
+
+void Session::set_error(const char *msg) {
+    errorText->truncate(0, errorText->size());
+    if (msg != nullptr)
+        errorText->append(msg);
+}
+
+const char *Session::error(void) {
+    return errorText->c_str();
+}
+
+Document *Session::active(void) {
+    if (activeIndex < 0 || activeIndex >= docs->size())
+        return nullptr;
+    return docs->at(activeIndex);
+}
+
+long Session::count(void) {
+    return docs->size();
+}
+
+Document *Session::at(long index) {
+    if (index < 0 || index >= docs->size())
+        return nullptr;
+    return docs->at(index);
+}
+
+long Session::index(void) {
+    return activeIndex;
+}
+
+Settings *Session::settings(void) {
+    return prefs;
+}
+
+Project *Session::project(void) {
+    return proj;
+}
+
+Explorer *Session::explorer(void) {
+    return tree;
+}
+
+LspClient *Session::lsp(void) {
+    return client;
+}
+
+int Session::quit_ready(void) {
+    return quitReady;
+}
+
+int Session::pending(void) {
+    return pend;
+}
+
+int Session::show_preferences(void) {
+    return prefsOpen;
+}
+
+int Session::show_about(void) {
+    return aboutOpen;
+}
+
+int Session::chooser(void) {
+    return choose;
+}
+
+const char *Session::query(void) {
+    return queryText->c_str();
+}
+
+const char *Session::clipboard(void) {
+    return clip->c_str();
+}
+
+void Session::use_config_dir(const char *dir) {
+    configDir = new String();
+    if (dir != nullptr)
+        configDir->append(dir);
+}
+
+void Session::fill_settings_path(char *dest) {
+    const char *xdg;
+    const char *home;
+    char mid[IDE_PATH];
+
+    dest[0] = 0;
+    if (configDir->size() > 0) {
+        path_join(dest, IDE_PATH, configDir->c_str(), "ide.toml");
+        return;
+    }
+    xdg = getenv("XDG_CONFIG_HOME");
+    if (xdg != nullptr && xdg[0] != 0) {
+        path_join(mid, IDE_PATH, xdg, "smallcpp");
+        path_join(dest, IDE_PATH, mid, "ide.toml");
+        return;
+    }
+    home = getenv("HOME");
+    if (home == nullptr)
+        home = ".";
+    path_join(mid, IDE_PATH, home, ".config");
+    path_join(mid, IDE_PATH, mid, "smallcpp");
+    path_join(dest, IDE_PATH, mid, "ide.toml");
+}
+
+const char *Session::settings_path(void) {
+    char path[IDE_PATH];
+
+    fill_settings_path(path);
+    settingsFile = new String();
+    settingsFile->append(path);
+    return settingsFile->c_str();
+}
+
+void Session::apply_editor_prefs(void) {
+    long i;
+    bool brackets;
+    bool indent;
+    TomlDoc *cfg;
+
+    cfg = nullptr;
+    if (proj->is_project() == 1)
+        cfg = proj->config();
+    brackets = prefs->effective_flag(
+            "editor.auto_complete_brackets",
+            cfg);
+    indent = prefs->effective_flag("editor.auto_indent", cfg);
+    i = 0;
+    while (i < docs->size()) {
+        docs->at(i)->buffer()->set_auto_brackets(brackets);
+        docs->at(i)->buffer()->set_auto_indent(indent);
+        i = i + 1;
+    }
+    if (client->running() == 1)
+        client->stop();
+    if (prefs->get_string("editor.lsp_command")[0] != 0)
+        client->start(prefs->get_string("editor.lsp_command"));
+}
+
+void Session::load_local(void) {
+    char path[IDE_PATH];
+    char side[IDE_PATH];
+    char *raw;
+    long n;
+    long i;
+    const char *io;
+    TomlDoc *extra;
+
+    if (proj->is_project() == 0)
+        return;
+    path_join(side, IDE_PATH, proj->root(), ".side");
+    path_join(path, IDE_PATH, side, "settings.toml");
+    if (file_exists(path) == 0)
+        return;
+    io = "";
+    raw = read_file(path, &n, &io);
+    if (raw == nullptr)
+        return;
+    extra = new TomlDoc();
+    if (extra->parse(raw) == 0) {
+        set_error("local settings");
+        return;
+    }
+    i = 0;
+    while (i < extra->count()) {
+        prefs->set_string(extra->key_at(i), extra->get(extra->key_at(i)));
+        i = i + 1;
+    }
+    prefs->load_text(prefs->save_text()->c_str());
+}
+
+int Session::load_settings(void) {
+    char path[IDE_PATH];
+    char *raw;
+    long n;
+    const char *io;
+    int rc;
+
+    fill_settings_path(path);
+    rc = prefs->load_file(path);
+    io = "";
+    raw = read_file(path, &n, &io);
+    if (raw == nullptr || text_has(raw, "[keyboard]") == 0) {
+        io = "";
+        raw = read_file("ide-shortcuts.conf", &n, &io);
+        if (raw != nullptr)
+            prefs->import_legacy(raw);
+    }
+    load_local();
+    apply_editor_prefs();
+    return rc;
+}
+
+int Session::save_settings(void) {
+    char path[IDE_PATH];
+
+    fill_settings_path(path);
+    return prefs->save_file(path);
+}
+
+void Session::ensure_document(void) {
+    if (docs->size() == 0 && quitReady == 0)
+        new_file();
+}
+
+int Session::new_file(void) {
+    Document *doc;
+
+    doc = new Document();
+    docs->add(doc);
+    activeIndex = docs->size() - 1;
+    apply_editor_prefs();
+    set_error("");
+    return IDE_OK;
+}
+
+void Session::remember_recent(const char *path) {
+    String *item;
+    long i;
+
+    if (path == nullptr || path[0] == 0)
+        return;
+    i = 0;
+    while (i < recentN) {
+        if (text_same(recent[i]->c_str(), path) == 1) {
+            item = recent[i];
+            while (i > 0) {
+                recent[i] = recent[i - 1];
+                i = i - 1;
+            }
+            recent[0] = item;
+            return;
+        }
+        i = i + 1;
+    }
+    item = new String();
+    item->append(path);
+    if (recentN < 20)
+        recentN = recentN + 1;
+    i = recentN - 1;
+    while (i > 0) {
+        recent[i] = recent[i - 1];
+        i = i - 1;
+    }
+    recent[0] = item;
+}
+
+long Session::recent_count(void) {
+    return recentN;
+}
+
+const char *Session::recent_at(long index) {
+    if (index < 0 || index >= recentN)
+        return "";
+    return recent[index]->c_str();
+}
+
+int Session::open_file(const char *path) {
+    Document *doc;
+    long i;
+
+    if (path == nullptr || path[0] == 0) {
+        set_error("missing path");
+        return IDE_FAILED;
+    }
+    i = 0;
+    while (i < docs->size()) {
+        if (docs->at(i)->untitled() == 0
+                && text_same(docs->at(i)->path(), path) == 1) {
+            activeIndex = i;
+            remember_recent(path);
+            set_error("");
+            return IDE_OK;
+        }
+        i = i + 1;
+    }
+    doc = new Document();
+    if (doc->load_path(path) == 0) {
+        set_error(doc->error());
+        return IDE_FAILED;
+    }
+    if (docs->size() == 1
+            && docs->at(0)->untitled() == 1
+            && docs->at(0)->buffer()->dirty() == false
+            && docs->at(0)->buffer()->size() == 0)
+        docs->remove(0);
+    docs->add(doc);
+    activeIndex = docs->size() - 1;
+    remember_recent(path);
+    consider_recovery(doc);
+    apply_editor_prefs();
+    if (client->running() == 1)
+        client->did_open(path, doc->language(), doc->buffer()->text());
+    set_error("");
+    return IDE_OK;
+}
+
+int Session::open_argument(const char *path) {
+    openedArgs = 1;
+    if (file_is_dir(path) == 1) {
+        if (proj->has_metadata(path) == 1)
+            return project_open(path);
+        return open_folder(path);
+    }
+    return open_file(path);
+}
+
+int Session::save_named(Document *doc) {
+    bool strip;
+    TomlDoc *cfg;
+
+    if (doc == nullptr)
+        return IDE_FAILED;
+    cfg = nullptr;
+    if (proj->is_project() == 1)
+        cfg = proj->config();
+    strip = prefs->effective_flag(
+            "editor.strip_trailing_spaces",
+            cfg);
+    if (doc->save_file(strip) == 0) {
+        set_error(doc->error());
+        return IDE_FAILED;
+    }
+    set_error("");
+    return IDE_OK;
+}
+
+int Session::save_active(void) {
+    Document *doc;
+
+    doc = active();
+    if (doc == nullptr)
+        return IDE_FAILED;
+    if (doc->untitled() == 1) {
+        set_error("untitled");
+        return IDE_NEEDS_PATH;
+    }
+    return save_named(doc);
+}
+
+void Session::allow_overwrite(int value) {
+    allowOverwrite = value;
+}
+
+int Session::save_as(const char *path) {
+    Document *doc;
+    long i;
+    bool strip;
+    TomlDoc *cfg;
+
+    doc = active();
+    if (doc == nullptr || path == nullptr || path[0] == 0)
+        return IDE_FAILED;
+    i = 0;
+    while (i < docs->size()) {
+        if (i != activeIndex
+                && docs->at(i)->untitled() == 0
+                && text_same(docs->at(i)->path(), path) == 1) {
+            set_error("open document");
+            return IDE_FAILED;
+        }
+        i = i + 1;
+    }
+    if (file_exists(path) == 1 && allowOverwrite == 0) {
+        set_error("overwrite");
+        return IDE_FAILED;
+    }
+    allowOverwrite = 0;
+    cfg = nullptr;
+    if (proj->is_project() == 1)
+        cfg = proj->config();
+    strip = prefs->effective_flag(
+            "editor.strip_trailing_spaces",
+            cfg);
+    if (doc->save_as(path, strip) == 0) {
+        set_error(doc->error());
+        return IDE_FAILED;
+    }
+    remember_recent(path);
+    set_error("");
+    return IDE_OK;
+}
+
+int Session::save_all(void) {
+    long i;
+    long keep;
+    int rc;
+
+    keep = activeIndex;
+    i = 0;
+    while (i < docs->size()) {
+        if (docs->at(i)->untitled() == 0
+                && docs->at(i)->buffer()->dirty() == true) {
+            activeIndex = i;
+            rc = save_named(docs->at(i));
+            if (rc != IDE_OK) {
+                activeIndex = keep;
+                return rc;
+            }
+        }
+        i = i + 1;
+    }
+    activeIndex = keep;
+    return IDE_OK;
+}
+
+void Session::set_index(long index) {
+    Document *leaving;
+
+    if (index < 0 || index >= docs->size())
+        return;
+    leaving = active();
+    if (leaving != nullptr
+            && leaving->untitled() == 0
+            && leaving->buffer()->dirty() == true
+            && view_flag("editor.save_on_tab_loss") == true)
+        save_named(leaving);
+    activeIndex = index;
+}
+
+void Session::save_on_window_loss(void) {
+    if (view_flag("editor.save_on_window_loss") == true)
+        save_all();
+}
+
+void Session::drop_one(long index) {
+    if (index < 0 || index >= docs->size())
+        return;
+    if (client->running() == 1 && docs->at(index)->untitled() == 0)
+        client->did_close(docs->at(index)->path());
+    docs->remove(index);
+    if (activeIndex >= docs->size())
+        activeIndex = docs->size() - 1;
+    if (activeIndex < 0)
+        activeIndex = 0;
+}
+
+int Session::next_dirty(void) {
+    long i;
+
+    i = 0;
+    while (i < docs->size()) {
+        if (docs->at(i)->buffer()->dirty() == true) {
+            activeIndex = i;
+            if (docs->at(i)->untitled() == 1)
+                return IDE_NEEDS_PATH;
+            return IDE_NEEDS_CHOICE;
+        }
+        i = i + 1;
+    }
+    return IDE_OK;
+}
+
+int Session::close_active(void) {
+    Document *doc;
+
+    doc = active();
+    if (doc == nullptr)
+        return IDE_FAILED;
+    if (doc->buffer()->dirty() == false) {
+        drop_one(activeIndex);
+        ensure_document();
+        return IDE_OK;
+    }
+    pend = PEND_CLOSE;
+    if (doc->untitled() == 1)
+        return IDE_NEEDS_PATH;
+    return IDE_NEEDS_CHOICE;
+}
+
+int Session::close_all(void) {
+    int rc;
+
+    pend = PEND_CLOSE_ALL;
+    rc = next_dirty();
+    if (rc != IDE_OK)
+        return rc;
+    return advance();
+}
+
+int Session::advance(void) {
+    int rc;
+
+    if (pend == PEND_CLOSE) {
+        drop_one(activeIndex);
+        pend = PEND_NONE;
+        ensure_document();
+        return IDE_OK;
+    }
+    rc = next_dirty();
+    if (rc != IDE_OK)
+        return rc;
+    if (pend == PEND_CLOSE_ALL) {
+        docs = new DocVec();
+        activeIndex = 0;
+        pend = PEND_NONE;
+        ensure_document();
+        return IDE_OK;
+    }
+    if (pend == PEND_QUIT) {
+        quitReady = 1;
+        pend = PEND_NONE;
+        return IDE_OK;
+    }
+    if (pend == PEND_OPEN_PROJECT) {
+        pend = PEND_NONE;
+        return finish_open_project();
+    }
+    pend = PEND_NONE;
+    return IDE_OK;
+}
+
+int Session::answer(int choice) {
+    int rc;
+
+    if (pend == PEND_WORKSPACE) {
+        if (choice == IDE_CANCEL) {
+            pend = PEND_NONE;
+            resumeKind = RESUME_NONE;
+            set_error("");
+            return IDE_CANCELLED;
+        }
+        if (choice == IDE_CONTINUE || choice == IDE_DISCARD) {
+            pend = PEND_NONE;
+            workspaceBypass = 1;
+            return after_workspace();
+        }
+        return IDE_FAILED;
+    }
+    if (pend == PEND_NONE)
+        return IDE_FAILED;
+    if (choice == IDE_CANCEL) {
+        pend = PEND_NONE;
+        set_error("");
+        return IDE_CANCELLED;
+    }
+    if (choice == IDE_DISCARD) {
+        if (active() != nullptr)
+            active()->buffer()->mark_clean();
+        return advance();
+    }
+    if (choice == IDE_SAVE) {
+        if (active() != nullptr && active()->untitled() == 1)
+            return IDE_NEEDS_PATH;
+        rc = save_active();
+        if (rc != IDE_OK)
+            return rc;
+        return advance();
+    }
+    return IDE_FAILED;
+}
+
+int Session::provide_path(const char *path) {
+    int rc;
+
+    rc = save_as(path);
+    if (rc != IDE_OK)
+        return rc;
+    if (pend == PEND_NONE)
+        return IDE_OK;
+    return advance();
+}
+
+int Session::quit(void) {
+    if (prepare_switch(RESUME_QUIT, "", 0) == 0)
+        return IDE_NEEDS_CHOICE;
+    pend = PEND_QUIT;
+    return advance();
+}
+
+void Session::capture_workspace(void) {
+    long i;
+    Document *doc;
+
+    if (proj->is_project() == 0)
+        return;
+    proj->clear_files();
+    i = 0;
+    while (i < docs->size()) {
+        doc = docs->at(i);
+        if (doc->untitled() == 0)
+            proj->add_file(
+                    doc->path(),
+                    doc->buffer()->cursor_line(),
+                    doc->buffer()->cursor_column());
+        i = i + 1;
+    }
+}
+
+int Session::prepare_switch(
+        int kind,
+        const char *path,
+        int replace) {
+    resumeKind = kind;
+    resumeReplace = replace;
+    resumePath = new String();
+    if (path != nullptr)
+        resumePath->append(path);
+    if (workspaceBypass == 1) {
+        workspaceBypass = 0;
+        return 1;
+    }
+    if (proj->is_project() == 0)
+        return 1;
+    capture_workspace();
+    if (proj->save_project() == 0) {
+        pend = PEND_WORKSPACE;
+        set_error(proj->error());
+        return 0;
+    }
+    return 1;
+}
+
+int Session::after_workspace(void) {
+    int kind;
+    const char *path;
+    int replace;
+
+    kind = resumeKind;
+    path = resumePath->c_str();
+    replace = resumeReplace;
+    resumeKind = RESUME_NONE;
+    if (kind == RESUME_FOLDER)
+        return open_folder_now(path);
+    if (kind == RESUME_NEW_PROJECT)
+        return project_new_now(path, replace);
+    if (kind == RESUME_SAVE_AS)
+        return project_save_as_now(path, replace);
+    if (kind == RESUME_CLOSE_PROJECT)
+        return project_close_now();
+    if (kind == RESUME_OPEN)
+        return load_project(path);
+    if (kind == RESUME_QUIT) {
+        pend = PEND_QUIT;
+        return advance();
+    }
+    return IDE_OK;
+}
+
+int Session::open_folder_now(const char *path) {
+    if (path == nullptr || file_is_dir(path) == 0) {
+        set_error("not a folder");
+        return IDE_FAILED;
+    }
+    if (proj->has_metadata(path) == 1)
+        return load_project(path);
+    proj->clear_project();
+    if (proj->open_root(path) == 0 && proj->broken() == 1) {
+        set_error(proj->error());
+        return IDE_FAILED;
+    }
+    tree->set_root(proj->root());
+    tree->use_project(nullptr);
+    tree->set_hidden(false);
+    tree->refresh();
+    set_error("");
+    return IDE_OK;
+}
+
+int Session::open_folder(const char *path) {
+    if (prepare_switch(RESUME_FOLDER, path, 0) == 0)
+        return IDE_NEEDS_CHOICE;
+    return open_folder_now(path);
+}
+
+int Session::project_new_now(const char *path, int replace) {
+    int made;
+
+    made = proj->create_at(path, replace);
+    if (made == 2) {
+        set_error("exists");
+        return 2;
+    }
+    if (made == 0) {
+        set_error(proj->error());
+        return IDE_FAILED;
+    }
+    tree->set_root(proj->root());
+    tree->use_project(proj);
+    tree->refresh();
+    prefs->set_string("project.last_root", proj->root());
+    save_settings();
+    set_error("");
+    return IDE_OK;
+}
+
+int Session::project_new(const char *path, int replace) {
+    if (prepare_switch(RESUME_NEW_PROJECT, path, replace) == 0)
+        return IDE_NEEDS_CHOICE;
+    return project_new_now(path, replace);
+}
+
+int Session::load_project(const char *path) {
+    long i;
+    char full[IDE_PATH];
+    const char *stored;
+
+    if (proj->has_metadata(path) == 0) {
+        set_error("not a project");
+        return IDE_FAILED;
+    }
+    if (proj->open_root(path) == 0) {
+        set_error(proj->error());
+        return IDE_FAILED;
+    }
+    docs = new DocVec();
+    activeIndex = 0;
+    i = 0;
+    while (i < proj->file_count()) {
+        stored = proj->file_at(i);
+        if (path_is_abs(stored) == 1)
+            text_copy(full, IDE_PATH, stored);
+        else
+            path_join(full, IDE_PATH, proj->root(), stored);
+        if (open_file(full) == IDE_OK)
+            active()->buffer()->move_to(
+                    proj->file_line(i),
+                    proj->file_column(i));
+        i = i + 1;
+    }
+    if (count() == 0)
+        new_file();
+    tree->set_root(proj->root());
+    tree->use_project(proj);
+    tree->refresh();
+    prefs->set_string("project.last_root", proj->root());
+    save_settings();
+    load_local();
+    apply_editor_prefs();
+    set_error("");
+    return IDE_OK;
+}
+
+int Session::finish_open_project(void) {
+    const char *path;
+
+    path = resumePath->c_str();
+    if (prepare_switch(RESUME_OPEN, path, 0) == 0)
+        return IDE_NEEDS_CHOICE;
+    return load_project(path);
+}
+
+int Session::project_open(const char *path) {
+    int rc;
+
+    resumePath = new String();
+    if (path != nullptr)
+        resumePath->append(path);
+    pend = PEND_OPEN_PROJECT;
+    rc = next_dirty();
+    if (rc != IDE_OK)
+        return rc;
+    pend = PEND_NONE;
+    return finish_open_project();
+}
+
+int Session::project_close_now(void) {
+    const char *root;
+
+    root = proj->root();
+    if (text_same(prefs->get_string("project.last_root"), root) == 1) {
+        prefs->set_string("project.last_root", "");
+        save_settings();
+    }
+    proj->clear_project();
+    tree->use_project(nullptr);
+    tree->refresh();
+    set_error("");
+    return IDE_OK;
+}
+
+int Session::project_close(void) {
+    if (proj->is_project() == 0)
+        return IDE_OK;
+    if (prepare_switch(RESUME_CLOSE_PROJECT, proj->root(), 0) == 0)
+        return IDE_NEEDS_CHOICE;
+    return project_close_now();
+}
+
+int Session::project_save(void) {
+    if (proj->is_project() == 0) {
+        set_error("no project");
+        return IDE_FAILED;
+    }
+    capture_workspace();
+    if (proj->save_project() == 0) {
+        pend = PEND_WORKSPACE;
+        resumeKind = RESUME_NONE;
+        set_error(proj->error());
+        return IDE_NEEDS_CHOICE;
+    }
+    set_error("");
+    return IDE_OK;
+}
+
+int Session::project_save_as_now(const char *path, int replace) {
+    int made;
+
+    capture_workspace();
+    made = proj->save_copy(path, replace);
+    if (made == 2) {
+        set_error("exists");
+        return 2;
+    }
+    if (made == 0) {
+        set_error(proj->error());
+        return IDE_FAILED;
+    }
+    tree->set_root(proj->root());
+    tree->use_project(proj);
+    tree->refresh();
+    prefs->set_string("project.last_root", proj->root());
+    save_settings();
+    set_error("");
+    return IDE_OK;
+}
+
+int Session::project_save_as(const char *path, int replace) {
+    if (proj->is_project() == 0) {
+        set_error("no project");
+        return IDE_FAILED;
+    }
+    if (prepare_switch(RESUME_SAVE_AS, path, replace) == 0)
+        return IDE_NEEDS_CHOICE;
+    return project_save_as_now(path, replace);
+}
+
+int Session::project_delete(void) {
+    const char *root;
+
+    if (proj->is_project() == 0)
+        return IDE_OK;
+    root = proj->root();
+    if (proj->remove_metadata() == 0) {
+        set_error(proj->error());
+        return IDE_FAILED;
+    }
+    if (text_same(prefs->get_string("project.last_root"), root) == 1) {
+        prefs->set_string("project.last_root", "");
+        save_settings();
+    }
+    tree->use_project(nullptr);
+    tree->refresh();
+    set_error("");
+    return IDE_OK;
+}
+
+int Session::project_configure(const char *csv) {
+    if (proj->is_project() == 0) {
+        set_error("no project");
+        return IDE_FAILED;
+    }
+    proj->set_exclude_text(csv);
+    if (text_same(proj->error(), "bad exclude") == 1) {
+        set_error("bad exclude");
+        return IDE_FAILED;
+    }
+    if (proj->save_project() == 0) {
+        set_error(proj->error());
+        return IDE_FAILED;
+    }
+    tree->refresh();
+    set_error("");
+    return IDE_OK;
+}
+
+void Session::set_view_flag(const char *key, bool value) {
+    const char *text;
+
+    if (value == true)
+        text = "true";
+    else
+        text = "false";
+    if (proj->is_project() == 1 && proj->config()->has(key) == 1) {
+        proj->config()->set(key, text);
+        proj->save_project();
+        return;
+    }
+    prefs->set_flag(key, value);
+    save_settings();
+}
+
+bool Session::view_flag(const char *key) {
+    TomlDoc *cfg;
+
+    cfg = nullptr;
+    if (proj->is_project() == 1)
+        cfg = proj->config();
+    return prefs->effective_flag(key, cfg);
+}
+
+void Session::set_query(const char *text) {
+    queryText = new String();
+    if (text != nullptr)
+        queryText->append(text);
+}
+
+void Session::set_replacement(const char *text) {
+    replaceText = new String();
+    if (text != nullptr)
+        replaceText->append(text);
+}
+
+void Session::set_match_case(bool value) {
+    matchCase = value;
+}
+
+void Session::set_whole_word(bool value) {
+    wholeWord = value;
+}
+
+void Session::set_in_selection(bool value) {
+    inSelection = value;
+}
+
+int Session::begin_find(void) {
+    EditBuffer *buf;
+    String *sel;
+
+    if (active() == nullptr)
+        return IDE_FAILED;
+    buf = active()->buffer();
+    if (buf->selection_one_line() == true) {
+        sel = buf->selected();
+        if (sel->size() > 0)
+            set_query(sel->c_str());
+    }
+    if (inSelection == true)
+        buf->capture_scope();
+    else
+        buf->clear_scope();
+    return find_again();
+}
+
+int Session::find_again(void) {
+    int found;
+
+    if (active() == nullptr)
+        return IDE_FAILED;
+    found = active()->buffer()->find_next(
+            queryText->c_str(),
+            matchCase,
+            wholeWord,
+            inSelection);
+    if (found < 0) {
+        set_error("no selection");
+        return IDE_FAILED;
+    }
+    if (found == 0) {
+        set_error("not found");
+        return IDE_FAILED;
+    }
+    set_error("");
+    return IDE_OK;
+}
+
+int Session::replace_one(void) {
+    int found;
+
+    if (active() == nullptr)
+        return IDE_FAILED;
+    found = active()->buffer()->replace_next(
+            queryText->c_str(),
+            replaceText->c_str(),
+            matchCase,
+            wholeWord,
+            inSelection);
+    if (found <= 0) {
+        set_error("not found");
+        return IDE_FAILED;
+    }
+    set_error("");
+    return IDE_OK;
+}
+
+int Session::replace_every(void) {
+    int count;
+
+    if (active() == nullptr)
+        return IDE_FAILED;
+    count = active()->buffer()->replace_all(
+            queryText->c_str(),
+            replaceText->c_str(),
+            matchCase,
+            wholeWord,
+            inSelection);
+    if (count < 0) {
+        set_error("no selection");
+        return IDE_FAILED;
+    }
+    set_error("");
+    return count;
+}
+
+void Session::goto_line(const char *spec) {
+    long line;
+    long column;
+    long i;
+
+    if (active() == nullptr || spec == nullptr)
+        return;
+    line = 0;
+    column = 1;
+    i = 0;
+    while (spec[i] >= '0' && spec[i] <= '9') {
+        line = line * 10 + (spec[i] - '0');
+        i = i + 1;
+    }
+    if (spec[i] == ':') {
+        i = i + 1;
+        column = 0;
+        while (spec[i] >= '0' && spec[i] <= '9') {
+            column = column * 10 + (spec[i] - '0');
+            i = i + 1;
+        }
+    }
+    if (line < 1)
+        line = 1;
+    if (column < 1)
+        column = 1;
+    active()->buffer()->move_to(line, column);
+}
+
+int Session::clipboard_copy(void) {
+    if (active() == nullptr)
+        return IDE_FAILED;
+    clip = active()->buffer()->selected();
+    return IDE_OK;
+}
+
+int Session::clipboard_cut(void) {
+    if (clipboard_copy() != IDE_OK)
+        return IDE_FAILED;
+    active()->buffer()->delete_forward();
+    return IDE_OK;
+}
+
+int Session::clipboard_paste(void) {
+    if (active() == nullptr)
+        return IDE_FAILED;
+    active()->buffer()->insert_text(clip->c_str());
+    return IDE_OK;
+}
+
+void Session::plugin_time(void) {
+    char clock[32];
+
+    if (active() == nullptr)
+        return;
+    format_clock(clock, 32, time(nullptr));
+    active()->buffer()->insert_text(clock);
+}
+
+void Session::plugin_debug(void) {
+    EditBuffer *buf;
+    long line;
+    const char *raw;
+    long at;
+
+    if (active() == nullptr)
+        return;
+    buf = active()->buffer();
+    line = buf->cursor_line();
+    raw = buf->text();
+    at = buf->byte_at_line(line - 1, 0);
+    if (text_starts(raw + at, "// DEBUG") == 1) {
+        buf->select_span(line, 1, line, 9);
+        buf->delete_forward();
+        return;
+    }
+    buf->move_to(line, 1);
+    buf->insert_text("// DEBUG");
+}
+
+int Session::recovery_file(Document *doc, char *dest) {
+    char side[IDE_PATH];
+    char name[IDE_PATH];
+    const char *stored;
+    long i;
+    char full[IDE_PATH];
+
+    if (doc == nullptr || doc->untitled() == 1)
+        return 0;
+    if (proj->is_project() == 0)
+        return 0;
+    if (path_is_abs(doc->path()) == 0)
+        stored = doc->path();
+    else {
+        text_copy(full, IDE_PATH, proj->root());
+        i = text_length(full);
+        if (text_starts(doc->path(), full) == 1
+                && doc->path()[i] == '/')
+            stored = doc->path() + i + 1;
+        else
+            stored = doc->path();
+    }
+    i = 0;
+    while (stored[i] != 0 && i + 1 < IDE_PATH) {
+        if (stored[i] == '/')
+            name[i] = '_';
+        else
+            name[i] = stored[i];
+        i = i + 1;
+    }
+    name[i] = 0;
+    path_join(side, IDE_PATH, proj->root(), ".side");
+    path_join(side, IDE_PATH, side, "recovery");
+    path_join(dest, IDE_PATH, side, name);
+    return dest[0] != 0;
+}
+
+void Session::consider_recovery(Document *doc) {
+    char path[IDE_PATH];
+
+    recoveryOn = 0;
+    recoveryFile = new String();
+    if (recovery_file(doc, path) == 0)
+        return;
+    if (file_exists(path) == 0)
+        return;
+    recoveryOn = 1;
+    recoveryFile->append(path);
+}
+
+int Session::snapshot_recovery(void) {
+    long i;
+    char path[IDE_PATH];
+    char side[IDE_PATH];
+    const char *io;
+    Document *doc;
+
+    if (proj->is_project() == 0)
+        return 0;
+    path_join(side, IDE_PATH, proj->root(), ".side");
+    path_join(side, IDE_PATH, side, "recovery");
+    if (ensure_dir(side) == 0)
+        return 0;
+    i = 0;
+    while (i < docs->size()) {
+        doc = docs->at(i);
+        if (doc->untitled() == 0
+                && doc->buffer()->dirty() == true) {
+            if (recovery_file(doc, path) == 1) {
+                io = "";
+                write_file(path, doc->buffer()->text(), &io);
+            }
+        }
+        i = i + 1;
+    }
+    return 1;
+}
+
+int Session::recovery_pending(void) {
+    return recoveryOn;
+}
+
+const char *Session::recovery_path(void) {
+    return recoveryFile->c_str();
+}
+
+int Session::restore_recovery(void) {
+    char *raw;
+    long n;
+    const char *io;
+
+    if (recoveryOn == 0 || active() == nullptr)
+        return IDE_FAILED;
+    io = "";
+    raw = read_file(recoveryFile->c_str(), &n, &io);
+    if (raw == nullptr) {
+        set_error(io);
+        return IDE_FAILED;
+    }
+    active()->buffer()->set_text(raw);
+    active()->buffer()->mark_dirty();
+    unlink(recoveryFile->c_str());
+    recoveryOn = 0;
+    set_error("");
+    return IDE_OK;
+}
+
+int Session::discard_recovery(void) {
+    if (recoveryOn == 0)
+        return IDE_OK;
+    unlink(recoveryFile->c_str());
+    recoveryOn = 0;
+    return IDE_OK;
+}
+
+void Session::poll_disk(void) {
+    Document *doc;
+
+    doc = active();
+    if (doc == nullptr || doc->untitled() == 1)
+        return;
+    if (doc->disk_differs() == 1)
+        set_error("changed on disk");
+}
+
+void Session::search_dir(
+        const char *dir,
+        const char *rel,
+        const char *text,
+        int depth) {
+    DIR *handle;
+    struct dirent *ent;
+    char full[IDE_PATH];
+    char child[IDE_PATH];
+    char *raw;
+    long n;
+    long i;
+    long line;
+    long start;
+    const char *io;
+    SearchHit *hit;
+
+    if (depth > 12 || hits->size() >= 1000)
+        return;
+    handle = opendir(dir);
+    if (handle == nullptr)
+        return;
+    ent = readdir(handle);
+    while (ent != nullptr) {
+        if (text_same(ent->d_name, ".") == 0
+                && text_same(ent->d_name, "..") == 0
+                && ent->d_name[0] != '.') {
+            path_join(full, IDE_PATH, dir, ent->d_name);
+            if (rel[0] == 0)
+                text_copy(child, IDE_PATH, ent->d_name);
+            else
+                path_join(child, IDE_PATH, rel, ent->d_name);
+            if (proj->is_project() == 0
+                    || proj->excluded(child, ent->d_name) == 0) {
+                if (file_is_dir(full) == 1 && file_is_link(full) == 0)
+                    search_dir(full, child, text, depth + 1);
+                else if (file_is_reg(full) == 1
+                        && hits->size() < 1000) {
+                    io = "";
+                    raw = read_file(full, &n, &io);
+                    if (raw != nullptr
+                            && bytes_have_nul(raw, n) == 0) {
+                        i = 0;
+                        line = 1;
+                        start = 0;
+                        while (i <= n && hits->size() < 1000) {
+                            if (i == n || raw[i] == '\n') {
+                                raw[i] = 0;
+                                if (text_has(raw + start, text) == 1) {
+                                    hit = new SearchHit();
+                                    hit->path = new String();
+                                    hit->path->append(full);
+                                    hit->line = line;
+                                    hit->text = new String();
+                                    hit->text->append(raw + start);
+                                    hits->add(hit);
+                                }
+                                line = line + 1;
+                                start = i + 1;
+                            }
+                            i = i + 1;
+                        }
+                    }
+                }
+            }
+        }
+        ent = readdir(handle);
+    }
+    closedir(handle);
+}
+
+int Session::search_project(const char *text) {
+    const char *root;
+
+    hits = new HitVec();
+    if (text == nullptr || text[0] == 0)
+        return 0;
+    root = proj->root();
+    if (root == nullptr || root[0] == 0) {
+        if (tree->count() == 0)
+            return 0;
+        root = "";
+    }
+    if (proj->root()[0] == 0)
+        return 0;
+    search_dir(proj->root(), "", text, 0);
+    return 1;
+}
+
+long Session::hit_count(void) {
+    return hits->size();
+}
+
+const char *Session::hit_path(long index) {
+    if (index < 0 || index >= hits->size())
+        return "";
+    return hits->at(index)->path->c_str();
+}
+
+long Session::hit_line(long index) {
+    if (index < 0 || index >= hits->size())
+        return 0;
+    return hits->at(index)->line;
+}
+
+const char *Session::hit_text(long index) {
+    if (index < 0 || index >= hits->size())
+        return "";
+    return hits->at(index)->text->c_str();
+}
+
+int Session::reopen_or_new(void) {
+    const char *root;
+
+    if (openedArgs == 1) {
+        if (count() == 0)
+            new_file();
+        return IDE_OK;
+    }
+    if (prefs->get_flag("project.reopen_last") == true) {
+        root = prefs->get_string("project.last_root");
+        if (root[0] != 0) {
+            if (project_open(root) != IDE_OK) {
+                set_error("remembered project");
+                prefs->set_string("project.last_root", "");
+                save_settings();
+            }
+        }
+    }
+    if (count() == 0)
+        new_file();
+    return IDE_OK;
+}
+
+void Session::poll_command_views(const char *command) {
+    if (text_same(command, "show-line-numbers") == 1)
+        set_view_flag(
+                "editor.line_numbers",
+                view_flag("editor.line_numbers") == false);
+    if (text_same(command, "show-whitespace") == 1)
+        set_view_flag(
+                "editor.show_whitespace",
+                view_flag("editor.show_whitespace") == false);
+    if (text_same(command, "show-line-ends") == 1)
+        set_view_flag(
+                "editor.show_line_ends",
+                view_flag("editor.show_line_ends") == false);
+    if (text_same(command, "show-indent-markers") == 1)
+        set_view_flag(
+                "editor.show_indent_markers",
+                view_flag("editor.show_indent_markers") == false);
+    if (text_same(command, "show-project-manager") == 1)
+        set_view_flag(
+                "editor.show_project_manager",
+                view_flag("editor.show_project_manager") == false);
+}
+
+int Session::run(const char *command) {
+    choose = 0;
+    prefsOpen = 0;
+    aboutOpen = 0;
+    if (command == nullptr)
+        return IDE_FAILED;
+    if (text_same(command, "new") == 1)
+        return new_file();
+    if (text_same(command, "open") == 1) {
+        choose = IDE_CHOOSE_OPEN;
+        return IDE_CHOOSE_OPEN;
+    }
+    if (text_same(command, "save") == 1)
+        return save_active();
+    if (text_same(command, "save-as") == 1) {
+        choose = IDE_CHOOSE_SAVE;
+        return IDE_CHOOSE_SAVE;
+    }
+    if (text_same(command, "save-all") == 1)
+        return save_all();
+    if (text_same(command, "close") == 1)
+        return close_active();
+    if (text_same(command, "close-all") == 1)
+        return close_all();
+    if (text_same(command, "quit") == 1)
+        return quit();
+    if (text_same(command, "find") == 1)
+        return begin_find();
+    if (text_same(command, "replace") == 1)
+        return replace_one();
+    if (text_same(command, "find-project") == 1)
+        return search_project(queryText->c_str());
+    if (text_same(command, "undo") == 1) {
+        if (active() != nullptr)
+            active()->buffer()->undo();
+        return IDE_OK;
+    }
+    if (text_same(command, "redo") == 1) {
+        if (active() != nullptr)
+            active()->buffer()->redo();
+        return IDE_OK;
+    }
+    if (text_same(command, "cut") == 1)
+        return clipboard_cut();
+    if (text_same(command, "copy") == 1)
+        return clipboard_copy();
+    if (text_same(command, "paste") == 1)
+        return clipboard_paste();
+    if (text_same(command, "select-all") == 1) {
+        if (active() != nullptr)
+            active()->buffer()->select_all();
+        return IDE_OK;
+    }
+    if (text_same(command, "strip-trailing-spaces") == 1) {
+        if (active() != nullptr)
+            active()->buffer()->strip_trailing();
+        return IDE_OK;
+    }
+    if (text_same(command, "comment") == 1) {
+        if (active() != nullptr)
+            active()->buffer()->toggle_line_comment(
+                    comment_leader(active()->language()));
+        return IDE_OK;
+    }
+    if (text_same(command, "block-comment") == 1) {
+        if (active() != nullptr)
+            active()->buffer()->toggle_block_comment();
+        return IDE_OK;
+    }
+    if (text_same(command, "indent") == 1) {
+        if (active() != nullptr)
+            active()->buffer()->indent_lines(
+                    prefs->get_number("editor.tab_width"),
+                    prefs->get_flag("editor.insert_spaces"));
+        return IDE_OK;
+    }
+    if (text_same(command, "outdent") == 1) {
+        if (active() != nullptr)
+            active()->buffer()->outdent_lines(
+                    prefs->get_number("editor.tab_width"),
+                    prefs->get_flag("editor.insert_spaces"));
+        return IDE_OK;
+    }
+    if (text_same(command, "preferences") == 1) {
+        prefsOpen = 1;
+        return IDE_OK;
+    }
+    if (text_same(command, "about") == 1) {
+        aboutOpen = 1;
+        return IDE_OK;
+    }
+    if (text_same(command, "reload") == 1) {
+        if (active() == nullptr || active()->untitled() == 1)
+            return IDE_FAILED;
+        if (active()->reload_file() == 0) {
+            set_error(active()->error());
+            return IDE_FAILED;
+        }
+        consider_recovery(active());
+        return IDE_OK;
+    }
+    if (text_same(command, "open-folder") == 1) {
+        choose = IDE_CHOOSE_FOLDER;
+        return IDE_CHOOSE_FOLDER;
+    }
+    if (text_same(command, "insert-column") == 1) {
+        if (active() != nullptr)
+            active()->buffer()->insert_column(clip->c_str());
+        return IDE_OK;
+    }
+    if (text_same(command, "delete-column") == 1) {
+        if (active() != nullptr)
+            active()->buffer()->delete_column();
+        return IDE_OK;
+    }
+    if (text_same(command, "plugin-time") == 1) {
+        plugin_time();
+        return IDE_OK;
+    }
+    if (text_same(command, "plugin-debug") == 1) {
+        plugin_debug();
+        return IDE_OK;
+    }
+    poll_command_views(command);
+    if (text_starts(command, "show-") == 1)
+        return IDE_OK;
+    set_error("unknown command");
+    return IDE_FAILED;
+}
+
+const char *Session::status(void) {
+    char number[32];
+    Document *doc;
+
+    statusText = new String();
+    doc = active();
+    if (doc == nullptr) {
+        statusText->append("no document");
+        return statusText->c_str();
+    }
+    statusText->append(doc->title());
+    if (doc->buffer()->dirty() == true)
+        statusText->append(" *");
+    statusText->append("  line ");
+    snprintf(number, 32, "%ld", doc->buffer()->cursor_line());
+    statusText->append(number);
+    statusText->append("  column ");
+    snprintf(number, 32, "%ld", doc->buffer()->cursor_column());
+    statusText->append(number);
+    statusText->append("  ");
+    statusText->append(doc->language());
+    if (client->diag_count() > 0) {
+        statusText->append("  diagnostics ");
+        snprintf(number, 32, "%ld", client->diag_count());
+        statusText->append(number);
+    }
+    if (errorText->size() > 0) {
+        statusText->append("  ");
+        statusText->append(errorText);
+    }
+    return statusText->c_str();
+}
+
+#endif

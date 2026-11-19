@@ -1,0 +1,169 @@
+#include "../src/buffer.scpp"
+
+static int failures;
+
+void expect(int cond, const char *msg) {
+    if (cond == 0) {
+        print("fail {:s}\n", msg);
+        failures = failures + 1;
+    }
+}
+
+int main(void) {
+    EditBuffer *buffer;
+    int found;
+    int count;
+
+    failures = 0;
+    buffer = new EditBuffer();
+    buffer->set_text("one\ntwo\n");
+    expect(buffer->line_count() == 3, "lines");
+    expect(buffer->dirty() == false, "clean load");
+    buffer->move_to(2, 1);
+    expect(buffer->cursor_line() == 2, "goto line");
+    expect(buffer->cursor_column() == 1, "goto col");
+    buffer->insert_text("X");
+    expect(text_same(buffer->text(), "one\nXtwo\n") == 1,
+            "insert");
+    expect(buffer->dirty() == true, "dirty");
+    buffer->undo();
+    expect(text_same(buffer->text(), "one\ntwo\n") == 1,
+            "undo");
+    buffer->redo();
+    expect(text_same(buffer->text(), "one\nXtwo\n") == 1,
+            "redo");
+    buffer->select_all();
+    buffer->delete_forward();
+    buffer->insert_text("ab");
+    expect(text_same(buffer->text(), "ab") == 1, "replace selection");
+    buffer->set_text("say alpha alpha");
+    buffer->move_to(1, 5);
+    found = buffer->find_next("Alpha", false, false, false);
+    expect(found == 1, "find case");
+    expect(text_same(buffer->selected()->c_str(), "alpha") == 1,
+            "find selects");
+    found = buffer->find_next("alpha", false, false, false);
+    expect(found == 1, "find next");
+    found = buffer->find_next("alpha", false, false, false);
+    expect(found == 1, "find wrap");
+    buffer->set_text("alpha alphabet");
+    buffer->set_cursor_offset(0);
+    found = buffer->find_next("alpha", false, true, false);
+    expect(found == 1, "whole word");
+    expect(buffer->sel_lo() == 0, "word at start");
+    found = buffer->find_next("alpha", false, true, false);
+    expect(found == 1, "wraps to the whole word");
+    expect(buffer->sel_lo() == 0, "skips alphabet");
+    buffer->set_text("one two two");
+    buffer->select_span(1, 5, 1, 12);
+    buffer->capture_scope();
+    expect(buffer->scope_active() == true, "scope");
+    buffer->set_cursor_offset(0);
+    found = buffer->find_next("two", false, false, true);
+    expect(found == 1, "in selection");
+    found = buffer->find_next("one", false, false, true);
+    expect(found == 0, "outside scope");
+    buffer->clear_scope();
+    found = buffer->find_next("one", false, false, true);
+    expect(found == -1, "needs scope");
+    buffer->set_text("a a a");
+    buffer->set_cursor_offset(0);
+    count = buffer->replace_all("a", "b", true, false, false);
+    expect(count == 3, "replace all count");
+    expect(text_same(buffer->text(), "b b b") == 1,
+            "replace all text");
+    buffer->undo();
+    expect(text_same(buffer->text(), "a a a") == 1,
+            "replace all one undo");
+    buffer->set_text("cat");
+    buffer->set_cursor_offset(0);
+    buffer->find_next("cat", true, false, false);
+    count = buffer->replace_next(
+            "cat",
+            "dog",
+            true,
+            false,
+            false);
+    expect(count == 1, "replace next");
+    expect(text_same(buffer->text(), "dog") == 1, "replaced");
+    buffer->set_text("  hi  \nok\t\n");
+    buffer->strip_trailing();
+    expect(text_same(buffer->text(), "  hi\nok\n") == 1,
+            "strip");
+    buffer->set_text("alpha\nbeta");
+    buffer->select_all();
+    buffer->toggle_line_comment("//");
+    expect(text_same(buffer->text(), "// alpha\n// beta") == 1,
+            "comment");
+    buffer->select_all();
+    buffer->toggle_line_comment("//");
+    expect(text_same(buffer->text(), "alpha\nbeta") == 1,
+            "uncomment");
+    buffer->set_text("int main");
+    buffer->select_span(1, 5, 1, 9);
+    buffer->toggle_block_comment();
+    expect(text_same(buffer->text(), "int /*main*/") == 1,
+            "block");
+    buffer->set_text("line");
+    buffer->select_all();
+    buffer->indent_lines(4, true);
+    expect(text_same(buffer->text(), "    line") == 1,
+            "indent");
+    buffer->select_all();
+    buffer->outdent_lines(4, true);
+    expect(text_same(buffer->text(), "line") == 1, "outdent");
+    buffer->set_text("abcd\nefgh\nijkl");
+    buffer->select_span(1, 2, 3, 2);
+    buffer->insert_column("Z");
+    expect(text_same(buffer->text(), "aZbcd\neZfgh\niZjkl") == 1,
+            "column");
+    buffer->set_text("");
+    buffer->insert_text("(");
+    expect(text_same(buffer->text(), "()") == 1, "pair");
+    expect(buffer->cursor_offset() == 1, "pair cursor");
+    buffer->insert_text(")");
+    expect(text_same(buffer->text(), "()") == 1, "step over");
+    expect(buffer->cursor_offset() == 2, "step cursor");
+    buffer->set_text("ab");
+    buffer->select_all();
+    buffer->insert_text("(");
+    expect(text_same(buffer->text(), "(ab)") == 1, "wrap");
+    buffer->set_text("()");
+    buffer->set_cursor_offset(1);
+    buffer->backspace();
+    expect(text_same(buffer->text(), "") == 1, "pair backspace");
+    buffer->set_text("    x");
+    buffer->move_to(1, 6);
+    buffer->insert_text("\n");
+    expect(text_same(buffer->text(), "    x\n    ") == 1,
+            "auto indent");
+    buffer->set_auto_brackets(false);
+    buffer->set_text("");
+    buffer->insert_text("(");
+    expect(text_same(buffer->text(), "(") == 1, "brackets off");
+    {
+        char cafe[6];
+
+        cafe[0] = 'c';
+        cafe[1] = 'a';
+        cafe[2] = 'f';
+        cafe[3] = (char)195;
+        cafe[4] = (char)169;
+        cafe[5] = 0;
+        buffer->set_text(cafe);
+    }
+    expect(buffer->line_count() == 1, "utf8 line");
+    buffer->move_to(1, 5);
+    expect(buffer->cursor_offset() == 5, "utf8 column");
+    buffer->set_text("keep");
+    expect(buffer->note_external("keep") == 0, "same text");
+    expect(buffer->note_external("kept") == 0, "typed");
+    expect(text_same(buffer->text(), "kept") == 1, "noted");
+    expect(buffer->can_undo() == true, "note undo");
+    if (failures == 0) {
+        print("test-buffer ok\n");
+        return 0;
+    }
+    print("test-buffer failed {}\n", failures);
+    return 1;
+}

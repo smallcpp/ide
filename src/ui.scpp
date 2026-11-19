@@ -1,0 +1,1249 @@
+#ifndef IDE_UI
+#define IDE_UI
+
+/* GTK window for the editor. Headless tests do not
+ * include this file. The menu row is the first child
+ * of the window because the wrapper has no title-bar
+ * setter.
+ */
+#include "session.scpp"
+#include "syntax.scpp"
+#include <exceptions>
+#include <gtk>
+
+using namespace Gtk;
+
+enum {
+    IDE_PAGES = 32,
+    IDE_ROWS = 200
+};
+
+class PageRef {
+public:
+    long index;
+};
+
+class IdePage {
+public:
+    TextBuffer *buffer;
+    TextView *view;
+    ScrolledWindow *scroll;
+    int tags;
+};
+
+class Ui {
+public:
+    Ui(Session *session);
+    Session *editor(void);
+    int start(void);
+    void show_main(void);
+    void refresh(void);
+    void handle(int code);
+    void on_menu(const char *label);
+    void open_path(const char *path);
+    void save_path(const char *path);
+    void use_folder(const char *path);
+    void choice(int response);
+    void goto_ok(void);
+    void toggled_hidden(bool value);
+    void changed(long index);
+    void moved(long index, long line, long offset);
+    void switched(long index);
+    void tick(void);
+    void find_clicked(void);
+    void replace_clicked(void);
+    void replace_all_clicked(void);
+    void apply_prefs(void);
+    void configure_ok(void);
+    int applying;
+    Entry *gotoEntry;
+    Entry *findEntry;
+    Entry *replaceEntry;
+    Entry *folderEntry;
+    Entry *lspEntry;
+    Entry *excludeEntry;
+private:
+    Session *state;
+    Application *app;
+    Window *mainWindow;
+    MenuButton *fileMenu;
+    Notebook *book;
+    Notebook *sideBook;
+    ColumnView *projectList;
+    ColumnView *fileList;
+    Label *status;
+    Paned *split;
+    Box *sideBox;
+    IdePage pages[IDE_PAGES];
+    PageRef refs[IDE_PAGES];
+    long pageCount;
+    String *rows[IDE_ROWS];
+    String *recentText[20];
+    int folderMode;
+    int choiceMode;
+    String *pendingPath;
+    Window *findWindow;
+    Window *aboutWindow;
+    Window *prefWindow;
+    Dialog *choiceDialog;
+    Dialog *gotoDialog;
+    Dialog *folderDialog;
+    Dialog *excludeDialog;
+    FileDialog *files;
+    SpinButton *fontSize;
+    SpinButton *tabWidth;
+    CheckButton *spacesCheck;
+    CheckButton *bracketsCheck;
+    CheckButton *indentCheck;
+    void build(void);
+    void fill_file_menu(void);
+    void add_page(long index);
+    void rebuild(void);
+    void push_active(void);
+    void fill_lists(void);
+    void highlight(long index);
+    void show_find(void);
+    void show_about(void);
+    void show_prefs(void);
+    void show_choice(const char *title, int mode);
+    void show_goto(void);
+    void show_folder(int mode);
+    void show_exclude(void);
+    void paint_status(void);
+};
+
+Ui *ideUi;
+Application *uiApp;
+int uiLive;
+int uiTicker;
+
+void *ui_ticker(void *arg);
+
+void ui_byte_pos(
+        const char *text,
+        long byte,
+        long *line,
+        long *col) {
+    long i;
+
+    *line = 0;
+    *col = 0;
+    if (text == nullptr)
+        return;
+    i = 0;
+    while (text[i] != 0 && i < byte) {
+        if (text[i] == '\n') {
+            *line = *line + 1;
+            *col = 0;
+        }
+        else
+            *col = *col + 1;
+        i = i + 1;
+    }
+}
+
+void ui_activate(void *data) {
+    pthread_t thread;
+
+    (void)data;
+    uiLive = 1;
+    if (uiTicker == 0) {
+        uiTicker = 1;
+        pthread_create(&thread, nullptr, ui_ticker, nullptr);
+    }
+    ideUi->show_main();
+}
+
+void ui_menu(void *data, const char *label) {
+    (void)data;
+    ideUi->on_menu(label);
+}
+
+void ui_opened(void *data, const char *path) {
+    (void)data;
+    ideUi->open_path(path);
+}
+
+void ui_saved(void *data, const char *path) {
+    (void)data;
+    ideUi->save_path(path);
+}
+
+void ui_choice_response(void *data, int response) {
+    (void)data;
+    ideUi->choice(response);
+}
+
+void ui_goto_response(void *data, int response) {
+    (void)data;
+    if (response == 1)
+        ideUi->goto_ok();
+}
+
+void ui_folder_response(void *data, int response) {
+    (void)data;
+    if (response == 1)
+        ideUi->use_folder(ideUi->folderEntry->text());
+}
+
+void ui_exclude_response(void *data, int response) {
+    (void)data;
+    if (response == 1)
+        ideUi->configure_ok();
+}
+
+bool ui_close(void *data) {
+    int code;
+
+    (void)data;
+    code = ideUi->editor()->quit();
+    if (ideUi->editor()->quit_ready() == 1) {
+        uiLive = 0;
+        return false;
+    }
+    ideUi->handle(code);
+    return true;
+}
+
+void ui_hidden(void *data, bool value) {
+    (void)data;
+    ideUi->toggled_hidden(value);
+}
+
+void ui_hide_side(void *data) {
+    (void)data;
+    ideUi->editor()->set_view_flag(
+            "editor.show_project_manager",
+            false);
+    ideUi->refresh();
+}
+
+void ui_refresh_tree(void *data) {
+    (void)data;
+    ideUi->editor()->explorer()->refresh();
+    ideUi->refresh();
+}
+
+void ui_changed(void *data) {
+    PageRef *ref;
+
+    ref = (PageRef *)data;
+    ideUi->changed(ref->index);
+}
+
+void ui_moved(void *data, long line, long offset) {
+    PageRef *ref;
+
+    ref = (PageRef *)data;
+    ideUi->moved(ref->index, line, offset);
+}
+
+void ui_switched(void *data, long index) {
+    (void)data;
+    ideUi->switched(index);
+}
+
+void ui_project_row(void *data, long index) {
+    ExplorerEntry *row;
+
+    (void)data;
+    if (index < 0 || index >= ideUi->editor()->explorer()->count())
+        return;
+    row = ideUi->editor()->explorer()->at(index);
+    if (row->kind == ENTRY_DIR)
+        ideUi->editor()->explorer()->toggle(index);
+    else if (row->kind == ENTRY_FILE || row->kind == ENTRY_LINK)
+        ideUi->open_path(row->full->c_str());
+    else
+        ideUi->refresh();
+}
+
+void ui_tick(void *data) {
+    (void)data;
+    if (ideUi != nullptr)
+        ideUi->tick();
+}
+
+void *ui_ticker(void *arg) {
+    struct timespec delay;
+
+    (void)arg;
+    delay.tv_sec = 3;
+    delay.tv_nsec = 0;
+    while (uiLive == 1) {
+        nanosleep(&delay, nullptr);
+        if (uiLive == 1 && uiApp != nullptr)
+            uiApp->post(ui_tick, nullptr);
+    }
+    return nullptr;
+}
+
+void ui_find(void *data) {
+    (void)data;
+    ideUi->find_clicked();
+}
+
+void ui_replace(void *data) {
+    (void)data;
+    ideUi->replace_clicked();
+}
+
+void ui_replace_all(void *data) {
+    (void)data;
+    ideUi->replace_all_clicked();
+}
+
+void ui_apply_prefs(void *data) {
+    (void)data;
+    ideUi->apply_prefs();
+}
+
+Ui::Ui(Session *session) {
+    long i;
+
+    state = session;
+    applying = 0;
+    pageCount = 0;
+    folderMode = 0;
+    choiceMode = 0;
+    pendingPath = new String();
+    fileMenu = nullptr;
+    i = 0;
+    while (i < IDE_PAGES) {
+        pages[i].buffer = nullptr;
+        pages[i].view = nullptr;
+        pages[i].scroll = nullptr;
+        pages[i].tags = 0;
+        refs[i].index = i;
+        i = i + 1;
+    }
+    i = 0;
+    while (i < 20) {
+        recentText[i] = new String();
+        i = i + 1;
+    }
+    i = 0;
+    while (i < IDE_ROWS) {
+        rows[i] = new String();
+        i = i + 1;
+    }
+    ideUi = this;
+    uiLive = 0;
+    uiTicker = 0;
+}
+
+Session *Ui::editor(void) {
+    return state;
+}
+
+void Ui::fill_file_menu(void) {
+    const char *fileLabels[40];
+    long n;
+    long i;
+
+    if (fileMenu == nullptr)
+        return;
+    n = 0;
+    fileLabels[n] = "New";
+    n = n + 1;
+    fileLabels[n] = "Open";
+    n = n + 1;
+    fileLabels[n] = "Save";
+    n = n + 1;
+    fileLabels[n] = "Save As";
+    n = n + 1;
+    fileLabels[n] = "Save All";
+    n = n + 1;
+    fileLabels[n] = "Reload";
+    n = n + 1;
+    fileLabels[n] = "Close";
+    n = n + 1;
+    fileLabels[n] = "Close All";
+    n = n + 1;
+    fileLabels[n] = "Open Folder";
+    n = n + 1;
+    i = 0;
+    while (i < state->recent_count() && i < 20 && n < 38) {
+        recentText[i]->truncate(0, recentText[i]->size());
+        recentText[i]->append("Recent: ");
+        recentText[i]->append(state->recent_at(i));
+        fileLabels[n] = recentText[i]->c_str();
+        n = n + 1;
+        i = i + 1;
+    }
+    fileLabels[n] = "Quit";
+    n = n + 1;
+    fileMenu->set_menu(fileLabels, n, ui_menu, nullptr);
+}
+
+void Ui::build(void) {
+    HeaderBar *bar;
+    MenuButton *editMenu;
+    MenuButton *viewMenu;
+    MenuButton *projectMenu;
+    MenuButton *helpMenu;
+    const char *editLabels[20];
+    const char *viewLabels[8];
+    const char *projectLabels[8];
+    const char *helpLabels[4];
+    Box *outer;
+    Box *editorBox;
+    Button *refreshButton;
+    Button *hideButton;
+    CheckButton *hidden;
+    Box *findBox;
+    Button *findButton;
+    Button *replaceButton;
+    Button *allButton;
+    Box *prefBox;
+    Button *applyButton;
+    String *aboutText;
+    Label *aboutLabel;
+    long width;
+    long height;
+    long side;
+
+    app = new Application("org.smallcpp.Ide");
+    uiApp = app;
+    mainWindow = new Window("ide");
+    width = 980;
+    height = 720;
+    side = 300;
+    if (state->project()->is_project() == 1) {
+        width = state->project()->window_width();
+        height = state->project()->window_height();
+        side = state->project()->side_width();
+    }
+    mainWindow->set_default_size(width, height);
+    mainWindow->on_close_request(ui_close, nullptr);
+    bar = new HeaderBar();
+    bar->set_show_title_buttons(false);
+    bar->set_title("ide");
+    fileMenu = new MenuButton("File");
+    editMenu = new MenuButton("Edit");
+    viewMenu = new MenuButton("View");
+    projectMenu = new MenuButton("Project");
+    helpMenu = new MenuButton("Help");
+    fill_file_menu();
+    editLabels[0] = "Undo";
+    editLabels[1] = "Redo";
+    editLabels[2] = "Cut";
+    editLabels[3] = "Copy";
+    editLabels[4] = "Paste";
+    editLabels[5] = "Select All";
+    editLabels[6] = "Find";
+    editLabels[7] = "Replace";
+    editLabels[8] = "Find in Project";
+    editLabels[9] = "Go to Line";
+    editLabels[10] = "Comment";
+    editLabels[11] = "Block Comment";
+    editLabels[12] = "Indent";
+    editLabels[13] = "Outdent";
+    editLabels[14] = "Strip Trailing Spaces";
+    editLabels[15] = "Insert at Column";
+    editLabels[16] = "Delete at Column";
+    editLabels[17] = "Insert Date";
+    editLabels[18] = "Toggle Debug";
+    editMenu->set_menu(editLabels, 19, ui_menu, nullptr);
+    viewLabels[0] = "Line Numbers";
+    viewLabels[1] = "Whitespace";
+    viewLabels[2] = "Line Ends";
+    viewLabels[3] = "Indent Markers";
+    viewLabels[4] = "Project Manager";
+    viewMenu->set_menu(viewLabels, 5, ui_menu, nullptr);
+    projectLabels[0] = "New Project";
+    projectLabels[1] = "Open Project";
+    projectLabels[2] = "Close Project";
+    projectLabels[3] = "Save Project";
+    projectLabels[4] = "Save Project As";
+    projectLabels[5] = "Delete Project";
+    projectLabels[6] = "Configure Exclusions";
+    projectMenu->set_menu(projectLabels, 7, ui_menu, nullptr);
+    helpLabels[0] = "Preferences";
+    helpLabels[1] = "About";
+    helpMenu->set_menu(helpLabels, 2, ui_menu, nullptr);
+    bar->pack_start((Widget *)fileMenu);
+    bar->pack_start((Widget *)editMenu);
+    bar->pack_start((Widget *)viewMenu);
+    bar->pack_start((Widget *)projectMenu);
+    bar->pack_end((Widget *)helpMenu);
+    outer = new Box(GTK_VERTICAL, 0);
+    outer->append((Widget *)bar);
+    split = new Paned(GTK_HORIZONTAL);
+    sideBox = new Box(GTK_VERTICAL, 4);
+    sideBox->set_width_request(160);
+    sideBook = new Notebook();
+    projectList = new ColumnView();
+    projectList->append_column("Project");
+    projectList->on_activate(ui_project_row, nullptr);
+    fileList = new ColumnView();
+    fileList->append_column("Files");
+    fileList->on_activate(ui_project_row, nullptr);
+    sideBook->append_page((Widget *)projectList, "Project");
+    sideBook->append_page((Widget *)fileList, "Files");
+    refreshButton = new Button("Refresh");
+    refreshButton->on_clicked(ui_refresh_tree, nullptr);
+    hidden = new CheckButton("Show Hidden");
+    hidden->on_toggled(ui_hidden, nullptr);
+    hideButton = new Button("Hide Sidebar");
+    hideButton->on_clicked(ui_hide_side, nullptr);
+    sideBox->append((Widget *)sideBook);
+    sideBox->append((Widget *)refreshButton);
+    sideBox->append((Widget *)hidden);
+    sideBox->append((Widget *)hideButton);
+    editorBox = new Box(GTK_VERTICAL, 0);
+    book = new Notebook();
+    book->on_switch_page(ui_switched, nullptr);
+    book->set_v_expand(true);
+    status = new Label("ide");
+    editorBox->append((Widget *)book);
+    editorBox->append((Widget *)status);
+    split->set_start_child((Widget *)sideBox);
+    split->set_end_child((Widget *)editorBox);
+    split->set_position(side);
+    split->set_v_expand(true);
+    outer->append((Widget *)split);
+    mainWindow->set_child((Widget *)outer);
+    files = new FileDialog();
+    choiceDialog = new Dialog("Confirm");
+    choiceDialog->add_button("Save", IDE_SAVE);
+    choiceDialog->add_button("Discard", IDE_DISCARD);
+    choiceDialog->add_button("Cancel", IDE_CANCEL);
+    choiceDialog->add_button("Continue", IDE_CONTINUE);
+    choiceDialog->on_response(ui_choice_response, nullptr);
+    gotoDialog = new Dialog("Go to Line");
+    gotoEntry = new Entry("");
+    gotoDialog->set_content((Widget *)gotoEntry);
+    gotoDialog->add_button("Go", 1);
+    gotoDialog->add_button("Cancel", IDE_CANCEL);
+    gotoDialog->on_response(ui_goto_response, nullptr);
+    folderDialog = new Dialog("Folder");
+    folderEntry = new Entry("");
+    folderDialog->set_content((Widget *)folderEntry);
+    folderDialog->add_button("Use Folder", 1);
+    folderDialog->add_button("Cancel", IDE_CANCEL);
+    folderDialog->on_response(ui_folder_response, nullptr);
+    excludeDialog = new Dialog("Exclusions");
+    excludeEntry = new Entry("");
+    excludeDialog->set_content((Widget *)excludeEntry);
+    excludeDialog->add_button("Apply", 1);
+    excludeDialog->add_button("Cancel", IDE_CANCEL);
+    excludeDialog->on_response(ui_exclude_response, nullptr);
+    findWindow = new Window("Find");
+    findBox = new Box(GTK_VERTICAL, 4);
+    findEntry = new Entry("");
+    replaceEntry = new Entry("");
+    findButton = new Button("Find Next");
+    replaceButton = new Button("Replace");
+    allButton = new Button("Replace All");
+    findButton->on_clicked(ui_find, nullptr);
+    replaceButton->on_clicked(ui_replace, nullptr);
+    allButton->on_clicked(ui_replace_all, nullptr);
+    findBox->append((Widget *)findEntry);
+    findBox->append((Widget *)replaceEntry);
+    findBox->append((Widget *)findButton);
+    findBox->append((Widget *)replaceButton);
+    findBox->append((Widget *)allButton);
+    findWindow->set_child((Widget *)findBox);
+    aboutWindow = new Window("About ide");
+    aboutText = new String();
+    aboutText->append("ide 0.0.1\n");
+    aboutText->append("A smallcpp text editor.\n");
+    aboutText->append("https://github.com/smallcpp/ide\n");
+    aboutText->append("https://github.com/smallcpp/smallcpp");
+    aboutLabel = new Label(aboutText->c_str());
+    aboutWindow->set_child((Widget *)aboutLabel);
+    prefWindow = new Window("Preferences");
+    prefBox = new Box(GTK_VERTICAL, 4);
+    fontSize = new SpinButton(6, 72, 12);
+    tabWidth = new SpinButton(1, 16, 4);
+    spacesCheck = new CheckButton("Insert spaces");
+    bracketsCheck = new CheckButton("Auto-close brackets");
+    indentCheck = new CheckButton("Auto-indent");
+    lspEntry = new Entry("");
+    applyButton = new Button("Apply");
+    applyButton->on_clicked(ui_apply_prefs, nullptr);
+    prefBox->append((Widget *)fontSize);
+    prefBox->append((Widget *)tabWidth);
+    prefBox->append((Widget *)spacesCheck);
+    prefBox->append((Widget *)bracketsCheck);
+    prefBox->append((Widget *)indentCheck);
+    prefBox->append((Widget *)lspEntry);
+    prefBox->append((Widget *)applyButton);
+    prefWindow->set_child((Widget *)prefBox);
+}
+
+void Ui::add_page(long index) {
+    Document *doc;
+    char title[256];
+    ScrolledWindow *scroll;
+
+    doc = state->at(index);
+    if (doc == nullptr)
+        return;
+    pages[index].buffer = new TextBuffer();
+    pages[index].view = new TextView(pages[index].buffer);
+    pages[index].view->set_monospace(true);
+    pages[index].view->set_editable(true);
+    scroll = new ScrolledWindow();
+    scroll->set_policy(GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+    scroll->set_child((Widget *)pages[index].view);
+    pages[index].scroll = scroll;
+    pages[index].tags = 0;
+    applying = 1;
+    pages[index].buffer->set_text(doc->buffer()->text());
+    applying = 0;
+    pages[index].buffer->on_changed(ui_changed, (void *)&refs[index]);
+    pages[index].view->on_move_cursor(ui_moved, (void *)&refs[index]);
+    if (doc->buffer()->dirty() == true)
+        snprintf(title, 256, "* %s", doc->title());
+    else
+        snprintf(title, 256, "%s", doc->title());
+    book->append_page((Widget *)scroll, title);
+    pageCount = pageCount + 1;
+    highlight(index);
+}
+
+void Ui::rebuild(void) {
+    long i;
+    long n;
+
+    while (pageCount > 0) {
+        book->remove_page(0);
+        pageCount = pageCount - 1;
+    }
+    n = state->count();
+    if (n > IDE_PAGES)
+        n = IDE_PAGES;
+    i = 0;
+    while (i < n) {
+        add_page(i);
+        i = i + 1;
+    }
+    if (pageCount > 0 && state->index() < pageCount)
+        book->set_current_page(state->index());
+}
+
+void Ui::push_active(void) {
+    long index;
+    Document *doc;
+
+    index = state->index();
+    if (applying == 1)
+        return;
+    if (index < 0 || index >= pageCount)
+        return;
+    doc = state->active();
+    if (doc == nullptr || pages[index].buffer == nullptr)
+        return;
+    if (text_same(
+                pages[index].buffer->get_text(),
+                doc->buffer()->text()) == 1)
+        return;
+    applying = 1;
+    pages[index].buffer->set_text(doc->buffer()->text());
+    applying = 0;
+    highlight(index);
+}
+
+void Ui::fill_lists(void) {
+    const char *cells[1];
+    long i;
+    long depth;
+    Explorer *tree;
+    ExplorerEntry *row;
+
+    tree = state->explorer();
+    if (state->project()->root()[0] != 0)
+        tree->set_root(state->project()->root());
+    if (state->project()->is_project() == 1)
+        tree->use_project(state->project());
+    tree->refresh();
+    projectList->clear_rows();
+    fileList->clear_rows();
+    i = 0;
+    while (i < tree->count() && i < IDE_ROWS) {
+        row = tree->at(i);
+        rows[i]->truncate(0, rows[i]->size());
+        depth = 0;
+        while (depth < row->depth && depth < 16) {
+            rows[i]->append("  ");
+            depth = depth + 1;
+        }
+        if (row->kind == ENTRY_DIR)
+            rows[i]->append("d ");
+        else if (row->kind == ENTRY_LINK)
+            rows[i]->append("l ");
+        else if (row->kind == ENTRY_NOTE)
+            rows[i]->append("n ");
+        else
+            rows[i]->append("f ");
+        rows[i]->append(row->label);
+        cells[0] = rows[i]->c_str();
+        projectList->append_row(cells, 1);
+        fileList->append_row(cells, 1);
+        i = i + 1;
+    }
+}
+
+void Ui::highlight(long index) {
+    Highlighter *scan;
+    Document *doc;
+    const char *text;
+    long i;
+    long line;
+    long col;
+    long line2;
+    long col2;
+    long n;
+    TextIter *start;
+    TextIter *end;
+    const char *name;
+    Span *span;
+
+    if (index < 0 || index >= pageCount)
+        return;
+    if (pages[index].buffer == nullptr)
+        return;
+    doc = state->at(index);
+    if (doc == nullptr)
+        return;
+    text = pages[index].buffer->get_text();
+    n = text_length(text);
+    if (n > 200000)
+        return;
+    ui_byte_pos(text, n, &line2, &col2);
+    start = new TextIter(0, 0);
+    end = new TextIter(line2, col2);
+    if (pages[index].tags == 0) {
+        pages[index].buffer->create_tag("keyword", "#2040c0");
+        pages[index].buffer->create_tag("string", "#208020");
+        pages[index].buffer->create_tag("comment", "#808080");
+        pages[index].buffer->create_tag("number", "#804000");
+        pages[index].buffer->create_tag("diag", "#c00000");
+        pages[index].tags = 1;
+    }
+    pages[index].buffer->remove_tag("keyword", start, end);
+    pages[index].buffer->remove_tag("string", start, end);
+    pages[index].buffer->remove_tag("comment", start, end);
+    pages[index].buffer->remove_tag("number", start, end);
+    pages[index].buffer->remove_tag("diag", start, end);
+    scan = new Highlighter();
+    scan->scan(text, doc->language());
+    i = 0;
+    while (i < scan->count()) {
+        span = scan->at(i);
+        ui_byte_pos(text, span->start, &line, &col);
+        ui_byte_pos(text, span->end, &line2, &col2);
+        start = new TextIter(line, col);
+        end = new TextIter(line2, col2);
+        name = "keyword";
+        if (span->kind == SPAN_STRING)
+            name = "string";
+        if (span->kind == SPAN_COMMENT)
+            name = "comment";
+        if (span->kind == SPAN_NUMBER)
+            name = "number";
+        pages[index].buffer->apply_tag(name, start, end);
+        i = i + 1;
+    }
+    i = 0;
+    while (i < state->lsp()->diag_count()) {
+        line = state->lsp()->diag_line(i);
+        start = new TextIter(line, 0);
+        end = new TextIter(line, 200);
+        pages[index].buffer->apply_tag("diag", start, end);
+        i = i + 1;
+    }
+    if (state->lsp()->diag_count() > 0)
+        pages[index].view->set_tooltip(
+                state->lsp()->diag_message(0));
+}
+
+void Ui::paint_status(void) {
+    String *line;
+    char number[32];
+
+    line = new String();
+    line->append(state->status());
+    if (state->hit_count() > 0) {
+        line->append("  hits ");
+        snprintf(number, 32, "%ld", state->hit_count());
+        line->append(number);
+    }
+    status->set_text(line->c_str());
+}
+
+void Ui::refresh(void) {
+    if (state->view_flag("editor.show_project_manager") == true)
+        sideBox->set_visible(true);
+    else
+        sideBox->set_visible(false);
+    if (pageCount != state->count())
+        rebuild();
+    else
+        push_active();
+    fill_file_menu();
+    fill_lists();
+    paint_status();
+}
+
+void Ui::show_main(void) {
+    refresh();
+    mainWindow->present();
+}
+
+void Ui::show_choice(const char *title, int mode) {
+    choiceMode = mode;
+    choiceDialog->set_title(title);
+    choiceDialog->present();
+}
+
+void Ui::show_goto(void) {
+    gotoDialog->present();
+}
+
+void Ui::show_folder(int mode) {
+    folderMode = mode;
+    if (mode == 1)
+        folderDialog->set_title("New Project");
+    else if (mode == 2)
+        folderDialog->set_title("Open Project");
+    else if (mode == 3)
+        folderDialog->set_title("Save Project As");
+    else
+        folderDialog->set_title("Open Folder");
+    folderDialog->present();
+}
+
+void Ui::show_exclude(void) {
+    String *text;
+
+    text = state->project()->exclude_text();
+    excludeEntry->set_text(text->c_str());
+    excludeDialog->present();
+}
+
+void Ui::show_find(void) {
+    findEntry->set_text(state->query());
+    findWindow->present();
+}
+
+void Ui::show_about(void) {
+    aboutWindow->present();
+}
+
+void Ui::show_prefs(void) {
+    fontSize->set_value(state->settings()->get_number(
+            "editor.font_size"));
+    tabWidth->set_value(state->settings()->get_number(
+            "editor.tab_width"));
+    spacesCheck->set_active(state->settings()->get_flag(
+            "editor.insert_spaces"));
+    bracketsCheck->set_active(state->settings()->get_flag(
+            "editor.auto_complete_brackets"));
+    indentCheck->set_active(state->settings()->get_flag(
+            "editor.auto_indent"));
+    lspEntry->set_text(state->settings()->get_string(
+            "editor.lsp_command"));
+    prefWindow->present();
+}
+
+void Ui::handle(int code) {
+    if (code == IDE_NEEDS_CHOICE) {
+        if (state->pending() == PEND_WORKSPACE)
+            show_choice("Workspace was not saved", 0);
+        else
+            show_choice("Save changes?", 0);
+        return;
+    }
+    if (code == IDE_NEEDS_PATH || code == IDE_CHOOSE_SAVE) {
+        files->set_title("Save");
+        files->save(ui_saved, nullptr);
+        return;
+    }
+    if (code == IDE_CHOOSE_OPEN) {
+        files->set_title("Open");
+        files->open(ui_opened, nullptr);
+        return;
+    }
+    if (code == IDE_CHOOSE_FOLDER) {
+        show_folder(0);
+        return;
+    }
+    if (code == 2) {
+        pendingPath = new String();
+        pendingPath->append(folderEntry->text());
+        show_choice("Replace project metadata?", 2);
+        return;
+    }
+    if (state->show_about() == 1)
+        show_about();
+    refresh();
+}
+
+void Ui::open_path(const char *path) {
+    if (path == nullptr || path[0] == 0)
+        return;
+    handle(state->open_file(path));
+}
+
+void Ui::save_path(const char *path) {
+    int code;
+
+    if (path == nullptr || path[0] == 0)
+        return;
+    pendingPath = new String();
+    pendingPath->append(path);
+    code = state->provide_path(path);
+    if (code == IDE_FAILED
+            && text_same(state->error(), "overwrite") == 1) {
+        show_choice("Overwrite the file?", 1);
+        return;
+    }
+    handle(code);
+}
+
+void Ui::use_folder(const char *path) {
+    int code;
+
+    if (path == nullptr || path[0] == 0)
+        return;
+    pendingPath = new String();
+    pendingPath->append(path);
+    if (folderMode == 1)
+        code = state->project_new(path, 0);
+    else if (folderMode == 2)
+        code = state->project_open(path);
+    else if (folderMode == 3)
+        code = state->project_save_as(path, 0);
+    else
+        code = state->open_folder(path);
+    handle(code);
+}
+
+void Ui::choice(int response) {
+    if (choiceMode == 1) {
+        if (response == IDE_SAVE) {
+            state->allow_overwrite(1);
+            handle(state->provide_path(pendingPath->c_str()));
+        }
+        return;
+    }
+    if (choiceMode == 2) {
+        if (response == IDE_SAVE)
+            handle(state->project_new(pendingPath->c_str(), 1));
+        return;
+    }
+    handle(state->answer(response));
+    if (state->quit_ready() == 1) {
+        uiLive = 0;
+        mainWindow->close();
+    }
+}
+
+void Ui::goto_ok(void) {
+    state->goto_line(gotoEntry->text());
+    refresh();
+}
+
+void Ui::toggled_hidden(bool value) {
+    state->explorer()->set_hidden(value);
+    state->explorer()->refresh();
+    refresh();
+}
+
+void Ui::changed(long index) {
+    Document *doc;
+    const char *text;
+    int external;
+
+    if (applying == 1)
+        return;
+    if (index < 0 || index >= pageCount)
+        return;
+    doc = state->at(index);
+    if (doc == nullptr || pages[index].buffer == nullptr)
+        return;
+    text = pages[index].buffer->get_text();
+    external = doc->buffer()->note_external(text);
+    if (external == 1) {
+        applying = 1;
+        pages[index].buffer->set_text(doc->buffer()->text());
+        applying = 0;
+    }
+    if (state->lsp()->running() == 1 && doc->untitled() == 0)
+        state->lsp()->did_change(
+                doc->path(),
+                doc->buffer()->text());
+    highlight(index);
+    paint_status();
+}
+
+void Ui::moved(long index, long line, long offset) {
+    Document *doc;
+
+    if (index < 0 || index >= state->count())
+        return;
+    doc = state->at(index);
+    if (doc == nullptr)
+        return;
+    doc->buffer()->move_to(line + 1, offset + 1);
+    paint_status();
+}
+
+void Ui::switched(long index) {
+    state->set_index(index);
+    paint_status();
+}
+
+void Ui::tick(void) {
+    state->poll_disk();
+    state->lsp()->drain();
+    state->snapshot_recovery();
+    if (state->index() >= 0 && state->index() < pageCount)
+        highlight(state->index());
+    paint_status();
+}
+
+void Ui::find_clicked(void) {
+    state->set_query(findEntry->text());
+    state->set_replacement(replaceEntry->text());
+    state->begin_find();
+    refresh();
+}
+
+void Ui::replace_clicked(void) {
+    state->set_query(findEntry->text());
+    state->set_replacement(replaceEntry->text());
+    state->replace_one();
+    refresh();
+}
+
+void Ui::replace_all_clicked(void) {
+    state->set_query(findEntry->text());
+    state->set_replacement(replaceEntry->text());
+    state->replace_every();
+    refresh();
+}
+
+void Ui::apply_prefs(void) {
+    state->settings()->set_number(
+            "editor.font_size",
+            (long)fontSize->value());
+    state->settings()->set_number(
+            "editor.tab_width",
+            (long)tabWidth->value());
+    state->settings()->set_flag(
+            "editor.insert_spaces",
+            spacesCheck->active());
+    state->settings()->set_flag(
+            "editor.auto_complete_brackets",
+            bracketsCheck->active());
+    state->settings()->set_flag(
+            "editor.auto_indent",
+            indentCheck->active());
+    state->settings()->set_string(
+            "editor.lsp_command",
+            lspEntry->text());
+    state->save_settings();
+    state->apply_editor_prefs();
+    refresh();
+}
+
+void Ui::configure_ok(void) {
+    handle(state->project_configure(excludeEntry->text()));
+}
+
+void Ui::on_menu(const char *label) {
+    if (label == nullptr)
+        return;
+    if (text_starts(label, "Recent: ") == 1) {
+        open_path(label + 8);
+        return;
+    }
+    if (text_same(label, "New") == 1) {
+        handle(state->run("new"));
+        return;
+    }
+    if (text_same(label, "Open") == 1) {
+        handle(state->run("open"));
+        return;
+    }
+    if (text_same(label, "Save") == 1) {
+        handle(state->run("save"));
+        return;
+    }
+    if (text_same(label, "Save As") == 1) {
+        handle(state->run("save-as"));
+        return;
+    }
+    if (text_same(label, "Save All") == 1) {
+        handle(state->run("save-all"));
+        return;
+    }
+    if (text_same(label, "Reload") == 1) {
+        handle(state->run("reload"));
+        return;
+    }
+    if (text_same(label, "Close") == 1) {
+        handle(state->run("close"));
+        return;
+    }
+    if (text_same(label, "Close All") == 1) {
+        handle(state->run("close-all"));
+        return;
+    }
+    if (text_same(label, "Open Folder") == 1) {
+        show_folder(0);
+        return;
+    }
+    if (text_same(label, "Quit") == 1) {
+        handle(state->run("quit"));
+        if (state->quit_ready() == 1) {
+            uiLive = 0;
+            mainWindow->close();
+        }
+        return;
+    }
+    if (text_same(label, "Undo") == 1) {
+        handle(state->run("undo"));
+        return;
+    }
+    if (text_same(label, "Redo") == 1) {
+        handle(state->run("redo"));
+        return;
+    }
+    if (text_same(label, "Cut") == 1) {
+        handle(state->run("cut"));
+        return;
+    }
+    if (text_same(label, "Copy") == 1) {
+        handle(state->run("copy"));
+        return;
+    }
+    if (text_same(label, "Paste") == 1) {
+        handle(state->run("paste"));
+        return;
+    }
+    if (text_same(label, "Select All") == 1) {
+        handle(state->run("select-all"));
+        return;
+    }
+    if (text_same(label, "Find") == 1 || text_same(label, "Replace") == 1) {
+        show_find();
+        return;
+    }
+    if (text_same(label, "Find in Project") == 1) {
+        state->set_query(findEntry->text());
+        state->search_project(state->query());
+        refresh();
+        return;
+    }
+    if (text_same(label, "Go to Line") == 1) {
+        show_goto();
+        return;
+    }
+    if (text_same(label, "Comment") == 1) {
+        handle(state->run("comment"));
+        return;
+    }
+    if (text_same(label, "Block Comment") == 1) {
+        handle(state->run("block-comment"));
+        return;
+    }
+    if (text_same(label, "Indent") == 1) {
+        handle(state->run("indent"));
+        return;
+    }
+    if (text_same(label, "Outdent") == 1) {
+        handle(state->run("outdent"));
+        return;
+    }
+    if (text_same(label, "Strip Trailing Spaces") == 1) {
+        handle(state->run("strip-trailing-spaces"));
+        return;
+    }
+    if (text_same(label, "Insert at Column") == 1) {
+        handle(state->run("insert-column"));
+        return;
+    }
+    if (text_same(label, "Delete at Column") == 1) {
+        handle(state->run("delete-column"));
+        return;
+    }
+    if (text_same(label, "Insert Date") == 1) {
+        handle(state->run("plugin-time"));
+        return;
+    }
+    if (text_same(label, "Toggle Debug") == 1) {
+        handle(state->run("plugin-debug"));
+        return;
+    }
+    if (text_same(label, "Line Numbers") == 1) {
+        handle(state->run("show-line-numbers"));
+        return;
+    }
+    if (text_same(label, "Whitespace") == 1) {
+        handle(state->run("show-whitespace"));
+        return;
+    }
+    if (text_same(label, "Line Ends") == 1) {
+        handle(state->run("show-line-ends"));
+        return;
+    }
+    if (text_same(label, "Indent Markers") == 1) {
+        handle(state->run("show-indent-markers"));
+        return;
+    }
+    if (text_same(label, "Project Manager") == 1) {
+        handle(state->run("show-project-manager"));
+        return;
+    }
+    if (text_same(label, "New Project") == 1) {
+        show_folder(1);
+        return;
+    }
+    if (text_same(label, "Open Project") == 1) {
+        show_folder(2);
+        return;
+    }
+    if (text_same(label, "Close Project") == 1) {
+        handle(state->project_close());
+        return;
+    }
+    if (text_same(label, "Save Project") == 1) {
+        handle(state->project_save());
+        return;
+    }
+    if (text_same(label, "Save Project As") == 1) {
+        show_folder(3);
+        return;
+    }
+    if (text_same(label, "Delete Project") == 1) {
+        handle(state->project_delete());
+        return;
+    }
+    if (text_same(label, "Configure Exclusions") == 1) {
+        show_exclude();
+        return;
+    }
+    if (text_same(label, "Preferences") == 1) {
+        state->run("preferences");
+        show_prefs();
+        return;
+    }
+    if (text_same(label, "About") == 1) {
+        state->run("about");
+        show_about();
+        return;
+    }
+}
+
+int Ui::start(void) {
+    build();
+    app->on_activate(ui_activate, nullptr);
+    return app->run();
+}
+
+#endif

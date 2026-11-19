@@ -1,0 +1,96 @@
+#include "../src/document.scpp"
+
+static int failures;
+
+void expect(int cond, const char *msg) {
+    if (cond == 0) {
+        print("fail {:s}\n", msg);
+        failures = failures + 1;
+    }
+}
+
+int main(void) {
+    char pattern[64];
+    char path[IDE_PATH];
+    char *dir;
+    Document *doc;
+    const char *io;
+
+    failures = 0;
+    text_copy(pattern, 64, "/tmp/ide-doc-XXXXXX");
+    dir = mkdtemp(pattern);
+    expect(dir != nullptr, "temp");
+    if (dir == nullptr)
+        return 1;
+    path_join(path, IDE_PATH, dir, "note.scpp");
+    io = "";
+    expect(write_file(path, "int main\n", &io) == 1, "seed");
+    doc = new Document();
+    expect(doc->untitled() == 1, "starts untitled");
+    expect(doc->load_path(path) == 1, "load");
+    expect(text_same(doc->title(), "note.scpp") == 1, "title");
+    expect(text_same(doc->language(), "scpp") == 1, "language");
+    expect(doc->buffer()->dirty() == false, "clean");
+    doc->buffer()->insert_text("X");
+    expect(doc->buffer()->dirty() == true, "edited");
+    expect(doc->save_file(false) == 1, "save");
+    expect(doc->buffer()->dirty() == false, "saved");
+    expect(doc->disk_differs() == 0, "matches disk");
+    expect(write_file(path, "other\n", &io) == 1, "outside write");
+    expect(doc->disk_differs() == 1, "disk changed");
+    expect(doc->reload_file() == 1, "reload");
+    expect(text_same(doc->buffer()->text(), "other\n") == 1,
+            "reloaded");
+    path_join(path, IDE_PATH, dir, "bin.dat");
+    {
+        char bytes[4];
+        int fd;
+
+        bytes[0] = 'a';
+        bytes[1] = 0;
+        bytes[2] = 'b';
+        bytes[3] = 0;
+        fd = open(path, O_CREAT | O_TRUNC | O_WRONLY, 384);
+        expect(fd >= 0, "binary fd");
+        if (fd >= 0) {
+            expect(write(fd, (void *)bytes, 3) == 3, "binary write");
+            close(fd);
+        }
+    }
+    expect(doc->load_path(path) == 0, "reject nul");
+    expect(text_same(doc->error(), "not a text file") == 1,
+            "nul message");
+    expect(text_same(doc->buffer()->text(), "other\n") == 1,
+            "buffer kept");
+    path_join(path, IDE_PATH, dir, "bad.txt");
+    {
+        char bytes[2];
+        int fd;
+
+        bytes[0] = (char)255;
+        bytes[1] = 0;
+        fd = open(path, O_CREAT | O_TRUNC | O_WRONLY, 384);
+        if (fd >= 0) {
+            write(fd, (void *)bytes, 1);
+            close(fd);
+        }
+    }
+    expect(doc->load_path(path) == 0, "reject utf8");
+    path_join(path, IDE_PATH, dir, "next.py");
+    doc = new Document();
+    doc->buffer()->set_text("print\n");
+    doc->buffer()->insert_text(" ");
+    expect(doc->save_as(path, true) == 1, "save as");
+    expect(text_same(doc->language(), "python") == 1, "language follows");
+    expect(doc->save_as("http://example/a", false) == 0, "reject uri");
+    unlink(path);
+    path_join(path, IDE_PATH, dir, "note.scpp");
+    unlink(path);
+    rmdir(dir);
+    if (failures == 0) {
+        print("test-document ok\n");
+        return 0;
+    }
+    print("test-document failed {}\n", failures);
+    return 1;
+}

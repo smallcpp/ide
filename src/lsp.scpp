@@ -1,0 +1,641 @@
+#ifndef IDE_LSP
+#define IDE_LSP
+
+/* A small language-server client. The reader thread
+ * copies bytes into a fixed buffer. It does not allocate.
+ * The GUI thread drains that buffer and parses diagnostics.
+ */
+#include "util.scpp"
+#include <pthread>
+#include <spawn>
+#include <time>
+#include <unistd>
+
+enum {
+    IDE_LSP_DIAGS = 64,
+    IDE_LSP_FRAME = 65536,
+    IDE_LSP_ARGS = 8
+};
+
+class LspDiag {
+public:
+    long line;
+    char message[160];
+};
+
+class LspFramer {
+public:
+    LspFramer();
+    void reset(void);
+    int push(const char *bytes, long n);
+    int pop(char *dest, long cap, long *outN);
+private:
+    char buf[IDE_LSP_FRAME];
+    long used;
+    int take_header(long *body, long *start);
+};
+
+static char lspInbox[IDE_LSP_FRAME];
+static long lspInboxN;
+static int lspEof;
+static int lspMuReady;
+static pthread_mutex_t lspMu;
+static int lspFromFd;
+static int lspStopRead;
+
+void *lsp_reader(void *arg) {
+    char chunk[1024];
+    long n;
+    long room;
+    long i;
+
+    (void)arg;
+    while (lspStopRead == 0) {
+        n = read(lspFromFd, (void *)chunk, 1024);
+        if (n <= 0)
+            break;
+        pthread_mutex_lock(&lspMu);
+        room = IDE_LSP_FRAME - lspInboxN - 1;
+        if (n > room)
+            n = room;
+        i = 0;
+        while (i < n) {
+            lspInbox[lspInboxN] = chunk[i];
+            lspInboxN = lspInboxN + 1;
+            i = i + 1;
+        }
+        lspInbox[lspInboxN] = 0;
+        pthread_mutex_unlock(&lspMu);
+    }
+    pthread_mutex_lock(&lspMu);
+    lspEof = 1;
+    pthread_mutex_unlock(&lspMu);
+    return nullptr;
+}
+
+class LspClient {
+public:
+    LspClient();
+    int start(const char *command);
+    void stop(void);
+    int running(void);
+    int allowed(const char *command, const char *path);
+    int write_raw(const char *bytes, long n);
+    void finish_write(void);
+    int saw_eof(void);
+    void did_open(
+            const char *path,
+            const char *lang,
+            const char *text);
+    void did_change(const char *path, const char *text);
+    void did_close(const char *path);
+    int drain(void);
+    long diag_count(void);
+    long diag_line(long index);
+    const char *diag_message(long index);
+    const char *error(void);
+    LspFramer *framer(void);
+private:
+    LspFramer *frames;
+    LspDiag diags[IDE_LSP_DIAGS];
+    long diagN;
+    int toFd;
+    int fromFd;
+    int alive;
+    pid_t child;
+    pthread_t thread;
+    int joined;
+    String *errorText;
+    String *commandText;
+    void set_error(const char *msg);
+    int send_json(const char *json);
+    void clear_diags(void);
+};
+
+int lsp_header_value(const char *text, long n, long *at) {
+    long i;
+    int ch;
+
+    i = 0;
+    while (i + 15 < n) {
+        if (text_starts(text + i, "Content-Length:") == 1) {
+            i = i + 15;
+            while (i < n && (text[i] == ' ' || text[i] == '\t'))
+                i = i + 1;
+            *at = i;
+            ch = 0;
+            if (i < n)
+                ch = text[i];
+            if (ch < '0' || ch > '9')
+                return 0;
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+LspFramer::LspFramer() {
+    used = 0;
+    buf[0] = 0;
+}
+
+void LspFramer::reset(void) {
+    used = 0;
+    buf[0] = 0;
+}
+
+int LspFramer::take_header(long *body, long *start) {
+    long at;
+    long n;
+    long i;
+
+    if (lsp_header_value(buf, used, &at) == 0)
+        return 0;
+    n = 0;
+    i = at;
+    while (i < used && buf[i] >= '0' && buf[i] <= '9') {
+        n = n * 10 + (buf[i] - '0');
+        i = i + 1;
+    }
+    if (i + 3 >= used)
+        return 0;
+    if (buf[i] != '\r' || buf[i + 1] != '\n')
+        return 0;
+    if (buf[i + 2] != '\r' || buf[i + 3] != '\n')
+        return 0;
+    *body = n;
+    *start = i + 4;
+    return 1;
+}
+
+int LspFramer::push(const char *bytes, long n) {
+    long i;
+
+    if (bytes == nullptr || n < 0)
+        return 0;
+    if (used + n >= IDE_LSP_FRAME)
+        return 0;
+    i = 0;
+    while (i < n) {
+        buf[used] = bytes[i];
+        used = used + 1;
+        i = i + 1;
+    }
+    buf[used] = 0;
+    return 1;
+}
+
+int LspFramer::pop(char *dest, long cap, long *outN) {
+    long body;
+    long start;
+    long i;
+    long rest;
+
+    if (take_header(&body, &start) == 0)
+        return 0;
+    if (start + body > used)
+        return 0;
+    if (dest != nullptr && cap > 0) {
+        i = 0;
+        while (i < body && i + 1 < cap) {
+            dest[i] = buf[start + i];
+            i = i + 1;
+        }
+        dest[i] = 0;
+    }
+    if (outN != nullptr)
+        *outN = body;
+    rest = used - (start + body);
+    i = 0;
+    while (i < rest) {
+        buf[i] = buf[start + body + i];
+        i = i + 1;
+    }
+    used = rest;
+    buf[used] = 0;
+    return 1;
+}
+
+void lsp_copy_message(char *dest, long cap, const char *text) {
+    long i;
+
+    if (dest == nullptr || cap < 1)
+        return;
+    dest[0] = 0;
+    if (text == nullptr)
+        return;
+    i = 0;
+    while (text[i] != 0 && i + 1 < cap) {
+        dest[i] = text[i];
+        i = i + 1;
+    }
+    dest[i] = 0;
+}
+
+int lsp_parse_diags(
+        const char *json,
+        LspDiag *out,
+        long cap,
+        long *count) {
+    long i;
+    long n;
+    long line;
+    long found;
+    int ch;
+    String *message;
+
+    if (count != nullptr)
+        *count = 0;
+    if (json == nullptr || out == nullptr || cap < 1)
+        return 0;
+    n = text_length(json);
+    i = 0;
+    found = 0;
+    while (i < n && found < cap) {
+        if (text_starts(json + i, "\"line\"") == 1) {
+            i = i + 6;
+            while (i < n && json[i] != ':')
+                i = i + 1;
+            if (i < n)
+                i = i + 1;
+            while (i < n && (json[i] == ' ' || json[i] == '\t'))
+                i = i + 1;
+            line = 0;
+            while (i < n && json[i] >= '0' && json[i] <= '9') {
+                line = line * 10 + (json[i] - '0');
+                i = i + 1;
+            }
+            while (i < n && text_starts(json + i, "\"message\"") == 0)
+                i = i + 1;
+            if (i >= n)
+                break;
+            i = i + 9;
+            while (i < n && json[i] != '"')
+                i = i + 1;
+            if (i < n)
+                i = i + 1;
+            message = new String();
+            while (i < n && json[i] != '"') {
+                ch = byte_at(json, i);
+                if (ch == '\\' && i + 1 < n) {
+                    i = i + 1;
+                    message->add(json[i]);
+                }
+                else
+                    message->add(json[i]);
+                i = i + 1;
+            }
+            out[found].line = line;
+            lsp_copy_message(
+                    out[found].message,
+                    160,
+                    message->c_str());
+            found = found + 1;
+        }
+        i = i + 1;
+    }
+    if (count != nullptr)
+        *count = found;
+    return 1;
+}
+
+LspClient::LspClient() {
+    frames = new LspFramer();
+    diagN = 0;
+    toFd = -1;
+    fromFd = -1;
+    alive = 0;
+    child = 0;
+    joined = 1;
+    errorText = new String();
+    commandText = new String();
+    if (lspMuReady == 0) {
+        pthread_mutex_init(&lspMu, nullptr);
+        lspMuReady = 1;
+    }
+}
+
+void LspClient::set_error(const char *msg) {
+    errorText->truncate(0, errorText->size());
+    if (msg != nullptr)
+        errorText->append(msg);
+}
+
+const char *LspClient::error(void) {
+    return errorText->c_str();
+}
+
+LspFramer *LspClient::framer(void) {
+    return frames;
+}
+
+int LspClient::running(void) {
+    return alive;
+}
+
+int LspClient::saw_eof(void) {
+    int value;
+
+    pthread_mutex_lock(&lspMu);
+    value = lspEof;
+    pthread_mutex_unlock(&lspMu);
+    return value;
+}
+
+void LspClient::clear_diags(void) {
+    diagN = 0;
+}
+
+int LspClient::allowed(const char *command, const char *path) {
+    const char *lang;
+    long i;
+
+    if (command == nullptr || command[0] == 0)
+        return 0;
+    i = 0;
+    while (command[i] == ' ')
+        i = i + 1;
+    lang = language_of(path);
+    if (text_starts(command + i, "clangd") == 1) {
+        if (text_same(lang, "c") == 1)
+            return 1;
+        if (text_same(lang, "cpp") == 1)
+            return 1;
+        return 0;
+    }
+    if (text_starts(command + i, "cwhip-lsp") == 1) {
+        if (text_same(lang, "cw") == 1)
+            return 1;
+        return 0;
+    }
+    if (text_same(lang, "plain") == 1)
+        return 0;
+    if (text_same(lang, "markdown") == 1)
+        return 0;
+    return 1;
+}
+
+int LspClient::start(const char *command) {
+    char storage[IDE_LSP_ARGS][256];
+    char *args[IDE_LSP_ARGS + 1];
+    long i;
+    long n;
+    long arg;
+    long at;
+    int toPipe[2];
+    int fromPipe[2];
+    posix_spawn_file_actions_t actions;
+    int rc;
+
+    stop();
+    set_error("");
+    if (command == nullptr || command[0] == 0) {
+        set_error("off");
+        return 0;
+    }
+    commandText = new String();
+    commandText->append(command);
+    arg = 0;
+    i = 0;
+    n = text_length(command);
+    while (i < n && arg < IDE_LSP_ARGS) {
+        while (i < n && command[i] == ' ')
+            i = i + 1;
+        if (i >= n)
+            break;
+        at = 0;
+        while (i < n && command[i] != ' ' && at + 1 < 256) {
+            storage[arg][at] = command[i];
+            at = at + 1;
+            i = i + 1;
+        }
+        storage[arg][at] = 0;
+        args[arg] = storage[arg];
+        arg = arg + 1;
+    }
+    if (arg == 0) {
+        set_error("off");
+        return 0;
+    }
+    args[arg] = nullptr;
+    if (pipe(toPipe) != 0 || pipe(fromPipe) != 0) {
+        set_error("pipe");
+        return 0;
+    }
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_adddup2(&actions, toPipe[0], 0);
+    posix_spawn_file_actions_adddup2(&actions, fromPipe[1], 1);
+    posix_spawn_file_actions_addclose(&actions, toPipe[1]);
+    posix_spawn_file_actions_addclose(&actions, fromPipe[0]);
+    child = 0;
+    rc = posix_spawnp(
+            &child,
+            args[0],
+            &actions,
+            nullptr,
+            args,
+            nullptr);
+    posix_spawn_file_actions_destroy(&actions);
+    close(toPipe[0]);
+    close(fromPipe[1]);
+    if (rc != 0) {
+        close(toPipe[1]);
+        close(fromPipe[0]);
+        set_error("spawn");
+        return 0;
+    }
+    toFd = toPipe[1];
+    fromFd = fromPipe[0];
+    pthread_mutex_lock(&lspMu);
+    lspInboxN = 0;
+    lspInbox[0] = 0;
+    lspEof = 0;
+    lspStopRead = 0;
+    lspFromFd = fromFd;
+    pthread_mutex_unlock(&lspMu);
+    joined = 0;
+    if (pthread_create(&thread, nullptr, lsp_reader, nullptr) != 0) {
+        set_error("thread");
+        stop();
+        return 0;
+    }
+    alive = 1;
+    return 1;
+}
+
+void LspClient::finish_write(void) {
+    if (toFd >= 0) {
+        close(toFd);
+        toFd = -1;
+    }
+}
+
+void LspClient::stop(void) {
+    int status;
+
+    finish_write();
+    lspStopRead = 1;
+    if (fromFd >= 0) {
+        close(fromFd);
+        fromFd = -1;
+    }
+    if (joined == 0) {
+        pthread_join(thread, nullptr);
+        joined = 1;
+    }
+    if (child > 0) {
+        status = 0;
+        waitpid(child, &status, 0);
+        child = 0;
+    }
+    alive = 0;
+}
+
+int LspClient::write_raw(const char *bytes, long n) {
+    long done;
+    long wrote;
+
+    if (toFd < 0 || bytes == nullptr || n < 0)
+        return 0;
+    done = 0;
+    while (done < n) {
+        wrote = write(
+                toFd,
+                (void *)(bytes + done),
+                (unsigned long)(n - done));
+        if (wrote < 0)
+            return 0;
+        done = done + wrote;
+    }
+    return 1;
+}
+
+int LspClient::send_json(const char *json) {
+    char header[64];
+    long n;
+
+    if (alive == 0 || json == nullptr)
+        return 0;
+    n = text_length(json);
+    snprintf(header, 64, "Content-Length: %ld\r\n\r\n", n);
+    if (write_raw(header, text_length(header)) == 0)
+        return 0;
+    return write_raw(json, n);
+}
+
+void lsp_json_escape(String *out, const char *text) {
+    long i;
+    int ch;
+
+    if (text == nullptr)
+        return;
+    i = 0;
+    while (text[i] != 0) {
+        ch = byte_at(text, i);
+        if (ch == '\\' || ch == '"') {
+            out->add('\\');
+            out->add((char)ch);
+        }
+        else if (ch == '\n')
+            out->append("\\n");
+        else
+            out->add((char)ch);
+        i = i + 1;
+    }
+}
+
+void LspClient::did_open(
+        const char *path,
+        const char *lang,
+        const char *text) {
+    String *json;
+
+    if (allowed(commandText->c_str(), path) == 0)
+        return;
+    if (lang == nullptr || lang[0] == 0)
+        lang = "plaintext";
+    json = new String();
+    json->append("{\"jsonrpc\":\"2.0\",\"method\":");
+    json->append("\"textDocument/didOpen\",\"params\":");
+    json->append("{\"textDocument\":{\"uri\":\"file://");
+    lsp_json_escape(json, path);
+    json->append("\",\"languageId\":\"");
+    lsp_json_escape(json, lang);
+    json->append("\",\"version\":1,\"text\":\"");
+    lsp_json_escape(json, text);
+    json->append("\"}}}");
+    send_json(json->c_str());
+}
+
+void LspClient::did_change(const char *path, const char *text) {
+    String *json;
+
+    if (allowed(commandText->c_str(), path) == 0)
+        return;
+    json = new String();
+    json->append("{\"jsonrpc\":\"2.0\",\"method\":");
+    json->append("\"textDocument/didChange\",\"params\":");
+    json->append("{\"textDocument\":{\"uri\":\"file://");
+    lsp_json_escape(json, path);
+    json->append("\"},\"contentChanges\":[{\"text\":\"");
+    lsp_json_escape(json, text);
+    json->append("\"}]}}");
+    send_json(json->c_str());
+}
+
+void LspClient::did_close(const char *path) {
+    String *json;
+
+    if (allowed(commandText->c_str(), path) == 0)
+        return;
+    json = new String();
+    json->append("{\"jsonrpc\":\"2.0\",\"method\":");
+    json->append("\"textDocument/didClose\",\"params\":");
+    json->append("{\"textDocument\":{\"uri\":\"file://");
+    lsp_json_escape(json, path);
+    json->append("\"}}}");
+    send_json(json->c_str());
+}
+
+int LspClient::drain(void) {
+    char local[IDE_LSP_FRAME];
+    char body[IDE_LSP_FRAME];
+    long n;
+    long bodyN;
+    long parsed;
+
+    pthread_mutex_lock(&lspMu);
+    n = lspInboxN;
+    text_copy(local, IDE_LSP_FRAME, lspInbox);
+    lspInboxN = 0;
+    lspInbox[0] = 0;
+    pthread_mutex_unlock(&lspMu);
+    if (n > 0)
+        frames->push(local, n);
+    clear_diags();
+    while (frames->pop(body, IDE_LSP_FRAME, &bodyN) == 1) {
+        parsed = 0;
+        lsp_parse_diags(body, diags, IDE_LSP_DIAGS, &parsed);
+        diagN = parsed;
+    }
+    return 1;
+}
+
+long LspClient::diag_count(void) {
+    return diagN;
+}
+
+long LspClient::diag_line(long index) {
+    if (index < 0 || index >= diagN)
+        return 0;
+    return diags[index].line;
+}
+
+const char *LspClient::diag_message(long index) {
+    if (index < 0 || index >= diagN)
+        return "";
+    return diags[index].message;
+}
+
+#endif

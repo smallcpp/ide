@@ -1,0 +1,745 @@
+#ifndef IDE_UTIL
+#define IDE_UTIL
+
+/* Shared text, path, and file helpers for the editor.
+ * A returned const char * from a String is valid until
+ * that String changes. Callers copy anything they keep.
+ */
+#include <errno>
+#include <fcntl>
+#include <stat>
+#include <stdio>
+#include <stdlib>
+#include <string>
+#include <time>
+#include <unistd>
+
+enum {
+    IDE_PATH = 4096,
+    IDE_FILE_MAX = 33554432
+};
+
+enum {
+    IDE_ISLNK_MODE = 40960,
+    IDE_MODE_MASK = 61440
+};
+
+long text_length(const char *text) {
+    long n;
+
+    if (text == nullptr)
+        return 0;
+    n = 0;
+    while (text[n] != 0)
+        n = n + 1;
+    return n;
+}
+
+int text_same(const char *left, const char *right) {
+    long i;
+
+    if (left == nullptr || right == nullptr)
+        return 0;
+    i = 0;
+    while (left[i] != 0 && left[i] == right[i])
+        i = i + 1;
+    if (left[i] == right[i])
+        return 1;
+    return 0;
+}
+
+int text_starts(const char *text, const char *prefix) {
+    long i;
+
+    if (text == nullptr || prefix == nullptr)
+        return 0;
+    i = 0;
+    while (prefix[i] != 0) {
+        if (text[i] != prefix[i])
+            return 0;
+        i = i + 1;
+    }
+    return 1;
+}
+
+void text_copy(char *dest, long cap, const char *src) {
+    long i;
+
+    if (dest == nullptr || cap < 1)
+        return;
+    if (src == nullptr) {
+        dest[0] = 0;
+        return;
+    }
+    i = 0;
+    while (src[i] != 0 && i + 1 < cap) {
+        dest[i] = src[i];
+        i = i + 1;
+    }
+    dest[i] = 0;
+}
+
+int text_has(const char *text, const char *needle) {
+    long n;
+    long m;
+    long i;
+    long j;
+
+    if (text == nullptr || needle == nullptr)
+        return 0;
+    n = text_length(text);
+    m = text_length(needle);
+    if (m == 0)
+        return 1;
+    i = 0;
+    while (i + m <= n) {
+        j = 0;
+        while (j < m && text[i + j] == needle[j])
+            j = j + 1;
+        if (j == m)
+            return 1;
+        i = i + 1;
+    }
+    return 0;
+}
+
+int byte_at(const char *text, long index) {
+    int value;
+
+    value = text[index];
+    if (value < 0)
+        value = value + 256;
+    return value;
+}
+
+int utf8_len(int value) {
+    if (value < 128)
+        return 1;
+    if ((value & 224) == 192)
+        return 2;
+    if ((value & 240) == 224)
+        return 3;
+    if ((value & 248) == 240)
+        return 4;
+    return 1;
+}
+
+int bytes_have_nul(const char *text, long n) {
+    long i;
+
+    if (text == nullptr)
+        return 0;
+    i = 0;
+    while (i < n) {
+        if (text[i] == 0)
+            return 1;
+        i = i + 1;
+    }
+    return 0;
+}
+
+int utf8_ok(const char *text, long n) {
+    long i;
+    int value;
+    int need;
+    int next;
+    long code;
+
+    if (text == nullptr && n > 0)
+        return 0;
+    i = 0;
+    while (i < n) {
+        value = byte_at(text, i);
+        if (value < 128) {
+            i = i + 1;
+            continue;
+        }
+        if ((value & 224) == 192) {
+            need = 2;
+            code = value & 31;
+        }
+        else if ((value & 240) == 224) {
+            need = 3;
+            code = value & 15;
+        }
+        else if ((value & 248) == 240) {
+            need = 4;
+            code = value & 7;
+        }
+        else
+            return 0;
+        if (i + need > n)
+            return 0;
+        next = 1;
+        while (next < need) {
+            value = byte_at(text, i + next);
+            if ((value & 192) != 128)
+                return 0;
+            code = code * 64 + (value & 63);
+            next = next + 1;
+        }
+        if (need == 2 && code < 128)
+            return 0;
+        if (need == 3 && code < 2048)
+            return 0;
+        if (need == 3 && code >= 55296 && code <= 57343)
+            return 0;
+        if (need == 4 && (code < 65536 || code > 1114111))
+            return 0;
+        i = i + need;
+    }
+    return 1;
+}
+
+int is_ident(int value) {
+    if (value >= 'a' && value <= 'z')
+        return 1;
+    if (value >= 'A' && value <= 'Z')
+        return 1;
+    if (value >= '0' && value <= '9')
+        return 1;
+    if (value == '_')
+        return 1;
+    return 0;
+}
+
+int ascii_lower(int value) {
+    if (value >= 'A' && value <= 'Z')
+        return value - 'A' + 'a';
+    return value;
+}
+
+void append_range(
+        String *dest,
+        const char *src,
+        long from,
+        long to) {
+    long i;
+
+    if (dest == nullptr || src == nullptr)
+        return;
+    if (from < 0)
+        from = 0;
+    i = from;
+    while (i < to) {
+        dest->add(src[i]);
+        i = i + 1;
+    }
+}
+
+String *slice_text(const char *src, long from, long to) {
+    String *text;
+
+    text = new String();
+    append_range(text, src, from, to);
+    return text;
+}
+
+int path_is_abs(const char *path) {
+    if (path == nullptr || path[0] != '/')
+        return 0;
+    return 1;
+}
+
+int path_has_scheme(const char *path) {
+    return text_has(path, "://");
+}
+
+void path_join(
+        char *dest,
+        long cap,
+        const char *dir,
+        const char *name) {
+    char left[IDE_PATH];
+    char right[IDE_PATH];
+    long n;
+    long i;
+
+    if (dest == nullptr || cap < 1)
+        return;
+    if (dir == nullptr || name == nullptr) {
+        dest[0] = 0;
+        return;
+    }
+    text_copy(left, IDE_PATH, dir);
+    text_copy(right, IDE_PATH, name);
+    dest[0] = 0;
+    n = text_length(left);
+    i = text_length(right);
+    if (n + i + 2 > cap)
+        return;
+    text_copy(dest, cap, left);
+    if (n > 0 && left[n - 1] != '/') {
+        dest[n] = '/';
+        dest[n + 1] = 0;
+        n = n + 1;
+    }
+    i = 0;
+    while (right[i] != 0) {
+        dest[n] = right[i];
+        n = n + 1;
+        i = i + 1;
+    }
+    dest[n] = 0;
+}
+
+const char *path_base(const char *path) {
+    long i;
+    long slash;
+
+    if (path == nullptr)
+        return "";
+    slash = -1;
+    i = 0;
+    while (path[i] != 0) {
+        if (path[i] == '/')
+            slash = i;
+        i = i + 1;
+    }
+    if (slash < 0)
+        return path;
+    return path + slash + 1;
+}
+
+void path_dir(char *dest, long cap, const char *path) {
+    long i;
+    long slash;
+
+    if (dest == nullptr || cap < 1)
+        return;
+    dest[0] = 0;
+    if (path == nullptr)
+        return;
+    slash = -1;
+    i = 0;
+    while (path[i] != 0) {
+        if (path[i] == '/')
+            slash = i;
+        i = i + 1;
+    }
+    if (slash < 0) {
+        text_copy(dest, cap, ".");
+        return;
+    }
+    if (slash == 0) {
+        text_copy(dest, cap, "/");
+        return;
+    }
+    if (slash + 1 > cap)
+        return;
+    i = 0;
+    while (i < slash) {
+        dest[i] = path[i];
+        i = i + 1;
+    }
+    dest[i] = 0;
+}
+
+int path_normalize(char *dest, long cap, const char *path) {
+    char part[IDE_PATH];
+    char out[IDE_PATH];
+    long i;
+    long n;
+    long start;
+    int abs;
+    int dot;
+
+    if (dest == nullptr || cap < 2 || path == nullptr)
+        return 0;
+    abs = path_is_abs(path);
+    out[0] = 0;
+    n = 0;
+    i = 0;
+    while (path[i] != 0) {
+        while (path[i] == '/')
+            i = i + 1;
+        if (path[i] == 0)
+            break;
+        start = 0;
+        while (path[i] != 0 && path[i] != '/') {
+            if (start + 1 >= IDE_PATH)
+                return 0;
+            part[start] = path[i];
+            start = start + 1;
+            i = i + 1;
+        }
+        part[start] = 0;
+        dot = 0;
+        if (text_same(part, ".") == 1)
+            dot = 1;
+        if (text_same(part, "..") == 1) {
+            if (n == 0) {
+                if (abs == 1)
+                    return 0;
+                dot = 0;
+            }
+            else {
+                while (n > 0 && out[n - 1] != '/')
+                    n = n - 1;
+                if (n > 0)
+                    n = n - 1;
+                out[n] = 0;
+                dot = 1;
+            }
+        }
+        if (dot == 1)
+            continue;
+        if (abs == 1 || n > 0) {
+            if (n + 1 >= IDE_PATH)
+                return 0;
+            out[n] = '/';
+            n = n + 1;
+            out[n] = 0;
+        }
+        if (n + start >= IDE_PATH)
+            return 0;
+        start = 0;
+        while (part[start] != 0) {
+            out[n] = part[start];
+            n = n + 1;
+            start = start + 1;
+        }
+        out[n] = 0;
+    }
+    if (n == 0) {
+        if (abs == 1)
+            text_copy(out, IDE_PATH, "/");
+        else
+            text_copy(out, IDE_PATH, ".");
+    }
+    if (text_length(out) + 1 > cap)
+        return 0;
+    text_copy(dest, cap, out);
+    return 1;
+}
+
+int file_is_dir(const char *path) {
+    struct stat info;
+
+    if (path == nullptr)
+        return 0;
+    if (stat(path, &info) != 0)
+        return 0;
+    if (S_ISDIR(info.st_mode))
+        return 1;
+    return 0;
+}
+
+int file_is_reg(const char *path) {
+    struct stat info;
+
+    if (path == nullptr)
+        return 0;
+    if (stat(path, &info) != 0)
+        return 0;
+    if (S_ISREG(info.st_mode))
+        return 1;
+    return 0;
+}
+
+int file_is_link(const char *path) {
+    struct stat info;
+    unsigned mode;
+
+    if (path == nullptr)
+        return 0;
+    if (lstat(path, &info) != 0)
+        return 0;
+    mode = info.st_mode & IDE_MODE_MASK;
+    if (mode == IDE_ISLNK_MODE)
+        return 1;
+    return 0;
+}
+
+int file_exists(const char *path) {
+    struct stat info;
+
+    if (path == nullptr)
+        return 0;
+    if (lstat(path, &info) != 0)
+        return 0;
+    return 1;
+}
+
+int ensure_dir(const char *path) {
+    if (path == nullptr || path[0] == 0)
+        return 0;
+    if (file_is_dir(path) == 1)
+        return 1;
+    if (mkdir(path, 448) == 0)
+        return 1;
+    if (file_is_dir(path) == 1)
+        return 1;
+    return 0;
+}
+
+char *read_file(
+        const char *path,
+        long *size,
+        const char **error) {
+    File *stream;
+    long n;
+    long got;
+    char *raw;
+    unsigned long count;
+
+    if (error != nullptr)
+        *error = "";
+    if (size != nullptr)
+        *size = 0;
+    if (path == nullptr) {
+        if (error != nullptr)
+            *error = "missing path";
+        return nullptr;
+    }
+    stream = fopen(path, "rb");
+    if (stream == nullptr) {
+        if (error != nullptr)
+            *error = "open failed";
+        return nullptr;
+    }
+    if (fseek(stream, 0, SEEK_END) != 0) {
+        fclose(stream);
+        if (error != nullptr)
+            *error = "read failed";
+        return nullptr;
+    }
+    n = ftell(stream);
+    if (n < 0 || n > IDE_FILE_MAX) {
+        fclose(stream);
+        if (error != nullptr)
+            *error = "read failed";
+        return nullptr;
+    }
+    if (fseek(stream, 0, SEEK_SET) != 0) {
+        fclose(stream);
+        if (error != nullptr)
+            *error = "read failed";
+        return nullptr;
+    }
+    raw = new char[n + 1];
+    count = (unsigned long)n;
+    got = (long)fread((void *)raw, 1, count, stream);
+    fclose(stream);
+    if (got != n) {
+        if (error != nullptr)
+            *error = "read failed";
+        return nullptr;
+    }
+    raw[n] = 0;
+    if (size != nullptr)
+        *size = n;
+    return raw;
+}
+
+int write_file(
+        const char *path,
+        const char *text,
+        const char **error) {
+    char temp[IDE_PATH];
+    long n;
+    long done;
+    long wrote;
+    int fd;
+    int flags;
+
+    if (error != nullptr)
+        *error = "";
+    if (path == nullptr || text == nullptr) {
+        if (error != nullptr)
+            *error = "missing path";
+        return 0;
+    }
+    n = text_length(path);
+    if (n + 5 >= IDE_PATH) {
+        if (error != nullptr)
+            *error = "save failed";
+        return 0;
+    }
+    text_copy(temp, IDE_PATH, path);
+    temp[n] = '.';
+    temp[n + 1] = 't';
+    temp[n + 2] = 'm';
+    temp[n + 3] = 'p';
+    temp[n + 4] = 0;
+    flags = O_CREAT | O_TRUNC | O_WRONLY;
+    fd = open(temp, flags, 384);
+    if (fd < 0) {
+        if (error != nullptr)
+            *error = "save failed";
+        return 0;
+    }
+    n = text_length(text);
+    done = 0;
+    while (done < n) {
+        wrote = write(
+                fd,
+                (void *)(text + done),
+                (unsigned long)(n - done));
+        if (wrote < 0) {
+            close(fd);
+            unlink(temp);
+            if (error != nullptr)
+                *error = "save failed";
+            return 0;
+        }
+        done = done + wrote;
+    }
+    if (close(fd) != 0) {
+        unlink(temp);
+        if (error != nullptr)
+            *error = "save failed";
+        return 0;
+    }
+    if (rename(temp, path) != 0) {
+        unlink(temp);
+        if (error != nullptr)
+            *error = "save failed";
+        return 0;
+    }
+    return 1;
+}
+
+void format_clock(char *dest, long cap, long seconds) {
+    long days;
+    long rem;
+    long hour;
+    long minute;
+    long second;
+    long z;
+    long era;
+    long doe;
+    long yoe;
+    long year;
+    long doy;
+    long mp;
+    long month;
+    long day;
+    char buf[40];
+
+    if (dest == nullptr || cap < 1)
+        return;
+    if (seconds < 0)
+        seconds = 0;
+    days = seconds / 86400;
+    rem = seconds % 86400;
+    hour = rem / 3600;
+    minute = (rem % 3600) / 60;
+    second = rem % 60;
+    z = days + 719468;
+    era = z / 146097;
+    doe = z - era * 146097;
+    yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096)
+            / 365;
+    year = yoe + era * 400;
+    doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    mp = (5 * doy + 2) / 153;
+    day = doy - (153 * mp + 2) / 5 + 1;
+    if (mp < 10)
+        month = mp + 3;
+    else {
+        month = mp - 9;
+        year = year + 1;
+    }
+    snprintf(
+            buf,
+            40,
+            "%04ld-%02ld-%02ld %02ld:%02ld:%02ld",
+            year,
+            month,
+            day,
+            hour,
+            minute,
+            second);
+    text_copy(dest, cap, buf);
+}
+
+const char *comment_leader(const char *language) {
+    if (text_same(language, "python") == 1)
+        return "#";
+    if (text_same(language, "shell") == 1)
+        return "#";
+    if (text_same(language, "toml") == 1)
+        return "#";
+    return "//";
+}
+
+const char *language_of(const char *path) {
+    const char *base;
+    long n;
+
+    base = path_base(path);
+    n = text_length(base);
+    if (n >= 5 && text_same(base + n - 5, ".scpp") == 1)
+        return "scpp";
+    if (n >= 3 && text_same(base + n - 3, ".cw") == 1)
+        return "cw";
+    if (n >= 2 && text_same(base + n - 2, ".c") == 1)
+        return "c";
+    if (n >= 2 && text_same(base + n - 2, ".h") == 1)
+        return "c";
+    if (n >= 4 && text_same(base + n - 4, ".cpp") == 1)
+        return "cpp";
+    if (n >= 4 && text_same(base + n - 4, ".hpp") == 1)
+        return "cpp";
+    if (n >= 3 && text_same(base + n - 3, ".cc") == 1)
+        return "cpp";
+    if (n >= 3 && text_same(base + n - 3, ".py") == 1)
+        return "python";
+    if (n >= 3 && text_same(base + n - 3, ".sh") == 1)
+        return "shell";
+    if (n >= 5 && text_same(base + n - 5, ".toml") == 1)
+        return "toml";
+    if (n >= 3 && text_same(base + n - 3, ".md") == 1)
+        return "markdown";
+    return "plain";
+}
+
+int glob_match(const char *pat, const char *text) {
+    if (pat == nullptr || text == nullptr)
+        return 0;
+    if (pat[0] == 0)
+        return text[0] == 0;
+    if (pat[0] == '*') {
+        if (glob_match(pat + 1, text) == 1)
+            return 1;
+        if (text[0] != 0 && glob_match(pat, text + 1) == 1)
+            return 1;
+        return 0;
+    }
+    if (text[0] == 0)
+        return 0;
+    if (pat[0] == '?' || pat[0] == text[0])
+        return glob_match(pat + 1, text + 1);
+    return 0;
+}
+
+int pattern_ok(const char *pat) {
+    long i;
+    long start;
+
+    if (pat == nullptr || pat[0] == 0)
+        return 0;
+    if (pat[0] == '/')
+        return 0;
+    i = text_length(pat);
+    if (pat[i - 1] == '/')
+        return 0;
+    i = 0;
+    while (pat[i] != 0) {
+        start = i;
+        while (pat[i] != 0 && pat[i] != '/')
+            i = i + 1;
+        if (i - start == 1 && pat[start] == '.')
+            return 0;
+        if (i - start == 2
+                && pat[start] == '.'
+                && pat[start + 1] == '.')
+            return 0;
+        if (pat[i] == '/')
+            i = i + 1;
+    }
+    return 1;
+}
+
+#endif

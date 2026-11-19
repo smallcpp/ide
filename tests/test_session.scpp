@@ -1,0 +1,146 @@
+#include "../src/session.scpp"
+
+static int failures;
+
+void expect(int cond, const char *msg) {
+    if (cond == 0) {
+        print("fail {:s}\n", msg);
+        failures = failures + 1;
+    }
+}
+
+int main(void) {
+    Session *session;
+    char pattern[64];
+    char folder[64];
+    char *dir;
+    char *root;
+    char path[IDE_PATH];
+    char side[IDE_PATH];
+    const char *io;
+    const char *message;
+    char *argv[3];
+    int kind;
+
+    failures = 0;
+    argv[0] = "ide";
+    argv[1] = "--help";
+    argv[2] = nullptr;
+    message = "";
+    kind = ide_classify_args(2, argv, &message);
+    expect(kind == 1, "help");
+    argv[1] = "--bogus";
+    kind = ide_classify_args(2, argv, &message);
+    expect(kind < 0, "usage error");
+    expect(text_has(message, "IDE0001") == 1, "code");
+    text_copy(pattern, 64, "/tmp/ide-cfg-XXXXXX");
+    dir = mkdtemp(pattern);
+    expect(dir != nullptr, "config dir");
+    session = new Session();
+    session->use_config_dir(dir);
+    expect(session->load_settings() == 1, "settings");
+    expect(session->new_file() == IDE_OK, "new");
+    expect(text_same(session->active()->title(), "untitled.scpp") == 1,
+            "untitled");
+    expect(session->active()->buffer()->dirty() == false, "clean");
+    session->active()->buffer()->insert_text("hello\n");
+    expect(session->close_active() == IDE_NEEDS_PATH, "needs path");
+    text_copy(folder, 64, "/tmp/ide-work-XXXXXX");
+    root = mkdtemp(folder);
+    path_join(path, IDE_PATH, root, "note.scpp");
+    expect(session->provide_path(path) == IDE_OK, "save untitled");
+    expect(session->count() == 1, "fresh tab");
+    expect(session->active()->untitled() == 1, "fresh untitled");
+    expect(session->open_file(path) == IDE_OK, "open");
+    expect(session->count() == 1, "replaced empty");
+    expect(session->open_file(path) == IDE_OK, "focus");
+    expect(session->count() == 1, "still one");
+    expect(session->recent_count() == 1, "recent");
+    expect(text_same(session->recent_at(0), path) == 1, "recent path");
+    session->new_file();
+    session->active()->buffer()->insert_text("skip");
+    session->set_index(0);
+    session->active()->buffer()->insert_text("\nmore\n");
+    expect(session->save_all() == IDE_OK, "save all");
+    expect(session->at(0)->buffer()->dirty() == false, "named saved");
+    expect(session->at(1)->buffer()->dirty() == true, "untitled kept");
+    session->set_query("more");
+    session->set_index(0);
+    expect(session->find_again() == IDE_OK, "find");
+    session->goto_line("2:1");
+    expect(session->active()->buffer()->cursor_line() == 2, "goto");
+    session->active()->buffer()->select_all();
+    session->active()->buffer()->delete_forward();
+    session->active()->buffer()->insert_text("hello\n");
+    session->goto_line("1:1");
+    session->plugin_debug();
+    expect(text_starts(
+                    session->active()->buffer()->text(),
+                    "// DEBUG") == 1,
+            "debug on");
+    session->plugin_debug();
+    expect(text_starts(session->active()->buffer()->text(), "hello") == 1,
+            "debug off");
+    session->active()->buffer()->select_all();
+    expect(session->clipboard_cut() == IDE_OK, "cut");
+    expect(session->active()->buffer()->size() == 0, "cut empty");
+    expect(session->clipboard_paste() == IDE_OK, "paste");
+    expect(session->project_new(root, 0) == IDE_OK, "project");
+    expect(session->project()->is_project() == 1, "is project");
+    expect(session->count() == 2, "docs kept");
+    expect(session->project_configure("*.log") == IDE_OK, "exclude");
+    expect(session->project()->excluded("a.log", "a.log") == 1,
+            "excluded");
+    path_join(side, IDE_PATH, root, "hit.scpp");
+    io = "";
+    expect(write_file(side, "alpha\nbeta\n", &io) == 1, "hit file");
+    expect(session->search_project("beta") == 1, "search");
+    expect(session->hit_count() == 1, "one hit");
+    expect(session->hit_line(0) == 2, "hit line");
+    session->open_file(side);
+    session->active()->buffer()->insert_text("DIRTY\n");
+    expect(session->snapshot_recovery() == 1, "snap");
+    expect(session->run("reload") == IDE_OK, "reload");
+    expect(session->recovery_pending() == 1, "recovery");
+    expect(session->restore_recovery() == IDE_OK, "restore");
+    expect(session->active()->buffer()->dirty() == true, "still dirty");
+    expect(text_starts(session->active()->buffer()->text(), "DIRTY") == 1,
+            "restored text");
+    path_join(side, IDE_PATH, root, "bin.dat");
+    {
+        char bytes[4];
+        int fd;
+
+        bytes[0] = 'a';
+        bytes[1] = 0;
+        bytes[2] = 'b';
+        bytes[3] = 0;
+        fd = open(side, O_CREAT | O_TRUNC | O_WRONLY, 384);
+        expect(fd >= 0, "binary fd");
+        if (fd >= 0) {
+            expect(write(fd, (void *)bytes, 3) == 3, "binary write");
+            close(fd);
+        }
+    }
+    expect(session->open_file(side) == IDE_FAILED, "refuse binary");
+    expect(text_same(session->error(), "not a text file") == 1,
+            "binary error");
+    session->set_index(0);
+    session->active()->buffer()->insert_text("x");
+    expect(session->close_active() == IDE_NEEDS_CHOICE, "close choice");
+    expect(session->answer(IDE_CANCEL) == IDE_CANCELLED, "cancel close");
+    expect(session->active()->buffer()->dirty() == true, "kept");
+    expect(session->quit() == IDE_NEEDS_CHOICE, "quit choice");
+    expect(session->answer(IDE_CANCEL) == IDE_CANCELLED, "stay");
+    expect(session->quit_ready() == 0, "not quitting");
+    expect(session->answer(IDE_DISCARD) == IDE_FAILED, "no pending");
+    expect(session->run("about") == IDE_OK, "about");
+    expect(session->show_about() == 1, "about flag");
+    expect(session->run("open") == IDE_CHOOSE_OPEN, "chooser");
+    if (failures == 0) {
+        print("test-session ok\n");
+        return 0;
+    }
+    print("test-session failed {}\n", failures);
+    return 1;
+}

@@ -1,0 +1,109 @@
+#include "../src/explorer.scpp"
+
+static int failures;
+
+void expect(int cond, const char *msg) {
+    if (cond == 0) {
+        print("fail {:s}\n", msg);
+        failures = failures + 1;
+    }
+}
+
+extern int symlink(const char *target, const char *linkpath);
+
+int main(void) {
+    char pattern[64];
+    char *dir;
+    char path[IDE_PATH];
+    char file[IDE_PATH];
+    char link[IDE_PATH];
+    Explorer *tree;
+    Project *project;
+    const char *io;
+    long i;
+    int saw;
+
+    failures = 0;
+    text_copy(pattern, 64, "/tmp/ide-tree-XXXXXX");
+    dir = mkdtemp(pattern);
+    expect(dir != nullptr, "temp");
+    if (dir == nullptr)
+        return 1;
+    path_join(path, IDE_PATH, dir, "src");
+    ensure_dir(path);
+    path_join(file, IDE_PATH, path, "a.scpp");
+    io = "";
+    write_file(file, "int a\n", &io);
+    path_join(file, IDE_PATH, dir, "readme.txt");
+    write_file(file, "hi\n", &io);
+    path_join(file, IDE_PATH, dir, ".hidden");
+    write_file(file, "secret\n", &io);
+    path_join(file, IDE_PATH, path, "a.scpp");
+    path_join(link, IDE_PATH, dir, "link.scpp");
+    symlink(file, link);
+    tree = new Explorer();
+    tree->set_root(dir);
+    tree->refresh();
+    expect(tree->count() >= 2, "listed");
+    expect(tree->at(0)->kind == ENTRY_DIR, "dir first");
+    expect(text_same(tree->at(0)->label->c_str(), "src") == 1,
+            "src name");
+    tree->toggle(0);
+    expect(tree->count() >= 3, "child listed");
+    saw = 0;
+    i = 0;
+    while (i < tree->count()) {
+        if (text_same(tree->at(i)->label->c_str(), "a.scpp") == 1)
+            saw = 1;
+        if (text_same(tree->at(i)->label->c_str(), "link.scpp") == 1)
+            expect(tree->at(i)->kind == ENTRY_LINK, "symlink leaf");
+        i = i + 1;
+    }
+    expect(saw == 1, "nested file");
+    tree->set_hidden(true);
+    tree->refresh();
+    saw = 0;
+    i = 0;
+    while (i < tree->count()) {
+        if (text_same(tree->at(i)->label->c_str(), ".hidden") == 1)
+            saw = 1;
+        i = i + 1;
+    }
+    expect(saw == 1, "shows hidden");
+    project = new Project();
+    expect(project->create_at(dir, 0) == 1, "project");
+    project->set_exclude_text("*.txt");
+    tree->use_project(project);
+    tree->set_hidden(false);
+    tree->refresh();
+    saw = 0;
+    i = 0;
+    while (i < tree->count()) {
+        if (text_same(tree->at(i)->label->c_str(), "readme.txt") == 1)
+            saw = 1;
+        i = i + 1;
+    }
+    expect(saw == 0, "excluded");
+    path_join(file, IDE_PATH, dir, "src");
+    path_join(path, IDE_PATH, file, "a.scpp");
+    unlink(path);
+    rmdir(file);
+    unlink(link);
+    path_join(file, IDE_PATH, dir, "readme.txt");
+    unlink(file);
+    path_join(file, IDE_PATH, dir, ".hidden");
+    unlink(file);
+    path_join(file, IDE_PATH, dir, ".side");
+    path_join(path, IDE_PATH, file, "project.toml");
+    unlink(path);
+    path_join(path, IDE_PATH, file, "workspace.toml");
+    unlink(path);
+    rmdir(file);
+    rmdir(dir);
+    if (failures == 0) {
+        print("test-explorer ok\n");
+        return 0;
+    }
+    print("test-explorer failed {}\n", failures);
+    return 1;
+}

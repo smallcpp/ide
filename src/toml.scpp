@@ -1,0 +1,790 @@
+#ifndef IDE_TOML
+#define IDE_TOML
+
+/* A TOML subset: sections, scalars, string arrays, and
+ * arrays of inline tables. Comments and unknown keys are
+ * kept as keys. Comments themselves are not kept.
+ */
+#include "util.scpp"
+
+class TomlDoc {
+public:
+    TomlDoc();
+    int parse(const char *text);
+    String *write_text(void);
+    int ok(void);
+    const char *error(void);
+    void set_error(const char *msg);
+    int has(const char *key);
+    const char *get(const char *key);
+    void set(const char *key, const char *value);
+    void remove_key(const char *key);
+    long count(void);
+    const char *key_at(long index);
+private:
+    StringVec *keys;
+    StringVec *vals;
+    int failed;
+    String *errorText;
+    long find_key(const char *key);
+    void write_scalar(String *out, const char *value);
+    void write_array(String *out, const char *section, const char *name);
+    int array_table(const char *prefix);
+};
+
+TomlDoc::TomlDoc() {
+    keys = new StringVec();
+    vals = new StringVec();
+    failed = 0;
+    errorText = new String();
+}
+
+long TomlDoc::find_key(const char *key) {
+    long i;
+
+    i = 0;
+    while (i < keys->size()) {
+        if (text_same(keys->at(i)->c_str(), key) == 1)
+            return i;
+        i = i + 1;
+    }
+    return -1;
+}
+
+int TomlDoc::ok(void) {
+    if (failed == 0)
+        return 1;
+    return 0;
+}
+
+const char *TomlDoc::error(void) {
+    return errorText->c_str();
+}
+
+void TomlDoc::set_error(const char *msg) {
+    failed = 1;
+    if (msg == nullptr)
+        msg = "toml";
+    errorText->truncate(0, errorText->size());
+    errorText->append(msg);
+}
+
+int TomlDoc::has(const char *key) {
+    if (find_key(key) < 0)
+        return 0;
+    return 1;
+}
+
+const char *TomlDoc::get(const char *key) {
+    long at;
+
+    at = find_key(key);
+    if (at < 0)
+        return "";
+    return vals->at(at)->c_str();
+}
+
+void TomlDoc::set(const char *key, const char *value) {
+    long at;
+    String *copy;
+
+    if (key == nullptr)
+        return;
+    if (value == nullptr)
+        value = "";
+    at = find_key(key);
+    copy = new String();
+    copy->append(value);
+    if (at >= 0) {
+        vals->replace(at, copy);
+        return;
+    }
+    keys->add(new String());
+    keys->at(keys->size() - 1)->append(key);
+    vals->add(copy);
+}
+
+void TomlDoc::remove_key(const char *key) {
+    long at;
+
+    at = find_key(key);
+    if (at < 0)
+        return;
+    keys->remove(at);
+    vals->remove(at);
+}
+
+long TomlDoc::count(void) {
+    return keys->size();
+}
+
+const char *TomlDoc::key_at(long index) {
+    if (index < 0 || index >= keys->size())
+        return "";
+    return keys->at(index)->c_str();
+}
+
+int toml_is_ws(int ch) {
+    if (ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r')
+        return 1;
+    return 0;
+}
+
+int toml_is_key(int ch) {
+    if (ch >= 'a' && ch <= 'z')
+        return 1;
+    if (ch >= 'A' && ch <= 'Z')
+        return 1;
+    if (ch >= '0' && ch <= '9')
+        return 1;
+    if (ch == '_' || ch == '-')
+        return 1;
+    return 0;
+}
+
+void toml_skip(const char *raw, long n, long *i) {
+    while (*i < n && toml_is_ws(byte_at(raw, *i)) == 1)
+        *i = *i + 1;
+}
+
+String *toml_strip(const char *text) {
+    String *out;
+    long i;
+    long n;
+    int quote;
+    int ch;
+
+    out = new String();
+    if (text == nullptr)
+        return out;
+    n = text_length(text);
+    i = 0;
+    quote = 0;
+    while (i < n) {
+        ch = byte_at(text, i);
+        if (quote == 0 && ch == '#') {
+            while (i < n && text[i] != '\n')
+                i = i + 1;
+            continue;
+        }
+        if (quote == 0 && ch == '/' && i + 1 < n && text[i + 1] == '/') {
+            while (i < n && text[i] != '\n')
+                i = i + 1;
+            continue;
+        }
+        if (ch == '"' && (i == 0 || text[i - 1] != '\\'))
+            quote = 1 - quote;
+        out->add(text[i]);
+        i = i + 1;
+    }
+    return out;
+}
+
+int toml_string(const char *raw, long n, long *i, String *out) {
+    int ch;
+
+    if (*i >= n || raw[*i] != '"')
+        return 0;
+    *i = *i + 1;
+    while (*i < n) {
+        ch = byte_at(raw, *i);
+        if (ch == '"') {
+            *i = *i + 1;
+            return 1;
+        }
+        if (ch == '\\') {
+            *i = *i + 1;
+            if (*i >= n)
+                return 0;
+            ch = byte_at(raw, *i);
+            if (ch == 'n')
+                out->add('\n');
+            else if (ch == 't')
+                out->add('\t');
+            else if (ch == '"' || ch == '\\')
+                out->add((char)ch);
+            else
+                return 0;
+            *i = *i + 1;
+            continue;
+        }
+        out->add((char)ch);
+        *i = *i + 1;
+    }
+    return 0;
+}
+
+int toml_word(const char *raw, long n, long *i, String *out) {
+    int ch;
+
+    if (*i >= n)
+        return 0;
+    ch = byte_at(raw, *i);
+    if (toml_is_key(ch) == 0 && ch != '-')
+        return 0;
+    while (*i < n && toml_is_key(byte_at(raw, *i)) == 1) {
+        out->add(raw[*i]);
+        *i = *i + 1;
+    }
+    return 1;
+}
+
+int toml_store(
+        TomlDoc *doc,
+        const char *path,
+        const char *raw,
+        long n,
+        long *i);
+
+int toml_table(
+        TomlDoc *doc,
+        const char *prefix,
+        const char *raw,
+        long n,
+        long *i) {
+    String *name;
+    String *full;
+    int ch;
+
+    toml_skip(raw, n, i);
+    if (*i >= n || raw[*i] != '{')
+        return 0;
+    *i = *i + 1;
+    while (*i < n) {
+        toml_skip(raw, n, i);
+        if (*i < n && raw[*i] == '}') {
+            *i = *i + 1;
+            return 1;
+        }
+        name = new String();
+        if (toml_word(raw, n, i, name) == 0) {
+            doc->set_error("toml");
+            return 0;
+        }
+        toml_skip(raw, n, i);
+        if (*i >= n || raw[*i] != '=') {
+            doc->set_error("toml");
+            return 0;
+        }
+        *i = *i + 1;
+        full = new String();
+        if (prefix != nullptr && prefix[0] != 0) {
+            full->append(prefix);
+            full->add('.');
+        }
+        full->append(name);
+        if (toml_store(doc, full->c_str(), raw, n, i) == 0)
+            return 0;
+        toml_skip(raw, n, i);
+        if (*i < n && raw[*i] == ',') {
+            *i = *i + 1;
+            continue;
+        }
+        ch = 0;
+        if (*i < n)
+            ch = byte_at(raw, *i);
+        if (ch != '}') {
+            doc->set_error("toml");
+            return 0;
+        }
+    }
+    doc->set_error("toml");
+    return 0;
+}
+
+int toml_array(
+        TomlDoc *doc,
+        const char *prefix,
+        const char *raw,
+        long n,
+        long *i) {
+    long index;
+    String *full;
+    char num[32];
+
+    toml_skip(raw, n, i);
+    if (*i >= n || raw[*i] != '[')
+        return 0;
+    *i = *i + 1;
+    index = 0;
+    while (*i < n) {
+        toml_skip(raw, n, i);
+        if (*i < n && raw[*i] == ']') {
+            *i = *i + 1;
+            return 1;
+        }
+        snprintf(num, 32, "#%ld", index);
+        full = new String();
+        full->append(prefix);
+        full->append(num);
+        if (toml_store(doc, full->c_str(), raw, n, i) == 0)
+            return 0;
+        index = index + 1;
+        toml_skip(raw, n, i);
+        if (*i < n && raw[*i] == ',') {
+            *i = *i + 1;
+            continue;
+        }
+        if (*i < n && raw[*i] == ']') {
+            *i = *i + 1;
+            return 1;
+        }
+        doc->set_error("toml");
+        return 0;
+    }
+    doc->set_error("toml");
+    return 0;
+}
+
+int toml_store(
+        TomlDoc *doc,
+        const char *path,
+        const char *raw,
+        long n,
+        long *i) {
+    String *value;
+    int ch;
+
+    toml_skip(raw, n, i);
+    if (*i >= n) {
+        doc->set_error("toml");
+        return 0;
+    }
+    ch = byte_at(raw, *i);
+    if (ch == '"') {
+        value = new String();
+        if (toml_string(raw, n, i, value) == 0) {
+            doc->set_error("toml");
+            return 0;
+        }
+        doc->set(path, value->c_str());
+        return 1;
+    }
+    if (ch == '[')
+        return toml_array(doc, path, raw, n, i);
+    if (ch == '{')
+        return toml_table(doc, path, raw, n, i);
+    value = new String();
+    if (ch == '-' || (ch >= '0' && ch <= '9')) {
+        if (ch == '-') {
+            value->add('-');
+            *i = *i + 1;
+        }
+        if (*i >= n || byte_at(raw, *i) < '0' || byte_at(raw, *i) > '9') {
+            doc->set_error("toml");
+            return 0;
+        }
+        while (*i < n) {
+            ch = byte_at(raw, *i);
+            if (ch < '0' || ch > '9')
+                break;
+            value->add((char)ch);
+            *i = *i + 1;
+        }
+        doc->set(path, value->c_str());
+        return 1;
+    }
+    if (toml_word(raw, n, i, value) == 0) {
+        doc->set_error("toml");
+        return 0;
+    }
+    if (text_same(value->c_str(), "true") == 0
+            && text_same(value->c_str(), "false") == 0) {
+        doc->set_error("toml");
+        return 0;
+    }
+    doc->set(path, value->c_str());
+    return 1;
+}
+
+int TomlDoc::parse(const char *text) {
+    String *clean;
+    const char *raw;
+    long n;
+    long i;
+    String *section;
+    String *name;
+    String *full;
+
+    keys = new StringVec();
+    vals = new StringVec();
+    failed = 0;
+    errorText = new String();
+    if (text == nullptr)
+        return 1;
+    if (bytes_have_nul(text, text_length(text)) == 1) {
+        set_error("toml");
+        return 0;
+    }
+    clean = toml_strip(text);
+    raw = clean->c_str();
+    n = clean->size();
+    i = 0;
+    section = new String();
+    while (i < n) {
+        toml_skip(raw, n, &i);
+        if (i >= n)
+            break;
+        if (raw[i] == '[') {
+            i = i + 1;
+            section = new String();
+            while (i < n && raw[i] != ']') {
+                if (raw[i] == '\n') {
+                    set_error("toml");
+                    return 0;
+                }
+                section->add(raw[i]);
+                i = i + 1;
+            }
+            if (i >= n || raw[i] != ']') {
+                set_error("toml");
+                return 0;
+            }
+            i = i + 1;
+            continue;
+        }
+        name = new String();
+        if (toml_word(raw, n, &i, name) == 0) {
+            set_error("toml");
+            return 0;
+        }
+        toml_skip(raw, n, &i);
+        if (i >= n || raw[i] != '=') {
+            set_error("toml");
+            return 0;
+        }
+        i = i + 1;
+        full = new String();
+        if (section->size() > 0) {
+            full->append(section);
+            full->add('.');
+        }
+        full->append(name);
+        if (toml_store(this, full->c_str(), raw, n, &i) == 0)
+            return 0;
+    }
+    if (failed == 0)
+        return 1;
+    return 0;
+}
+
+void TomlDoc::write_scalar(String *out, const char *value) {
+    long i;
+    int ch;
+    int numeric;
+
+    if (text_same(value, "true") == 1 || text_same(value, "false") == 1) {
+        out->append(value);
+        return;
+    }
+    numeric = 1;
+    if (value == nullptr || value[0] == 0)
+        numeric = 0;
+    i = 0;
+    if (value != nullptr && value[0] == '-')
+        i = 1;
+    if (value == nullptr || value[i] == 0)
+        numeric = 0;
+    while (numeric == 1 && value[i] != 0) {
+        if (value[i] < '0' || value[i] > '9')
+            numeric = 0;
+        i = i + 1;
+    }
+    if (numeric == 1) {
+        out->append(value);
+        return;
+    }
+    out->add('"');
+    i = 0;
+    while (value != nullptr && value[i] != 0) {
+        ch = byte_at(value, i);
+        if (ch == '\\' || ch == '"') {
+            out->add('\\');
+            out->add((char)ch);
+        }
+        else if (ch == '\n')
+            out->append("\\n");
+        else
+            out->add((char)ch);
+        i = i + 1;
+    }
+    out->add('"');
+}
+
+int TomlDoc::array_table(const char *prefix) {
+    String *probe;
+    long i;
+
+    probe = new String();
+    probe->append(prefix);
+    probe->append("#0.");
+    i = 0;
+    while (i < keys->size()) {
+        if (text_starts(keys->at(i)->c_str(), probe->c_str()) == 1)
+            return 1;
+        i = i + 1;
+    }
+    return 0;
+}
+
+void TomlDoc::write_array(
+        String *out,
+        const char *section,
+        const char *name) {
+    String *prefix;
+    long index;
+    int tables;
+    char num[32];
+    String *key;
+    long field;
+    int first;
+    int firstField;
+
+    prefix = new String();
+    if (section != nullptr && section[0] != 0) {
+        prefix->append(section);
+        prefix->add('.');
+    }
+    prefix->append(name);
+    tables = array_table(prefix->c_str());
+    out->append(name);
+    out->append(" = [");
+    index = 0;
+    first = 1;
+    while (1) {
+        snprintf(num, 32, "#%ld", index);
+        key = new String();
+        key->append(prefix);
+        key->append(num);
+        if (tables == 0) {
+            if (has(key->c_str()) == 0)
+                break;
+            if (first == 0)
+                out->append(", ");
+            first = 0;
+            write_scalar(out, get(key->c_str()));
+        }
+        else {
+            key->add('.');
+            field = 0;
+            firstField = 1;
+            if (first == 0)
+                out->append(", ");
+            while (field < keys->size()) {
+                if (text_starts(
+                            keys->at(field)->c_str(),
+                            key->c_str()) == 1)
+                    break;
+                field = field + 1;
+            }
+            if (field >= keys->size())
+                break;
+            first = 0;
+            out->append("{ ");
+            field = 0;
+            while (field < keys->size()) {
+                const char *have;
+                const char *leaf;
+
+                have = keys->at(field)->c_str();
+                if (text_starts(have, key->c_str()) == 1) {
+                    leaf = have + key->size();
+                    if (firstField == 0)
+                        out->append(", ");
+                    firstField = 0;
+                    out->append(leaf);
+                    out->append(" = ");
+                    write_scalar(out, vals->at(field)->c_str());
+                }
+                field = field + 1;
+            }
+            out->append(" }");
+        }
+        index = index + 1;
+        if (index > 10000)
+            break;
+    }
+    out->append("]\n");
+}
+
+String *TomlDoc::write_text(void) {
+    String *out;
+    long i;
+    const char *key;
+    long dot;
+    long hash;
+    long j;
+    char section[128];
+    char name[128];
+    int seen;
+    String *marker;
+
+    out = new String();
+    i = 0;
+    while (i < keys->size()) {
+        key = keys->at(i)->c_str();
+        if (text_same(key, "version") == 1) {
+            out->append("version = ");
+            write_scalar(out, vals->at(i)->c_str());
+            out->add('\n');
+        }
+        i = i + 1;
+    }
+    i = 0;
+    while (i < keys->size()) {
+        key = keys->at(i)->c_str();
+        dot = -1;
+        hash = -1;
+        j = 0;
+        while (key[j] != 0) {
+            if (key[j] == '.' && dot < 0)
+                dot = j;
+            if (key[j] == '#')
+                hash = j;
+            j = j + 1;
+        }
+        if (dot >= 0 || hash >= 0 || text_same(key, "version") == 1) {
+            i = i + 1;
+            continue;
+        }
+        out->append(key);
+        out->append(" = ");
+        write_scalar(out, vals->at(i)->c_str());
+        out->add('\n');
+        i = i + 1;
+    }
+    i = 0;
+    while (i < keys->size()) {
+        key = keys->at(i)->c_str();
+        dot = -1;
+        j = 0;
+        while (key[j] != 0) {
+            if (key[j] == '.') {
+                dot = j;
+                break;
+            }
+            j = j + 1;
+        }
+        if (dot <= 0) {
+            i = i + 1;
+            continue;
+        }
+        if (dot >= 127) {
+            i = i + 1;
+            continue;
+        }
+        j = 0;
+        while (j < dot) {
+            section[j] = key[j];
+            j = j + 1;
+        }
+        section[j] = 0;
+        seen = 0;
+        j = 0;
+        while (j < i) {
+            const char *prev;
+            long k;
+            long pd;
+
+            prev = keys->at(j)->c_str();
+            pd = -1;
+            k = 0;
+            while (prev[k] != 0) {
+                if (prev[k] == '.') {
+                    pd = k;
+                    break;
+                }
+                k = k + 1;
+            }
+            if (pd == dot && text_starts(prev, section) == 1
+                    && prev[dot] == '.')
+                seen = 1;
+            j = j + 1;
+        }
+        if (seen == 1) {
+            i = i + 1;
+            continue;
+        }
+        out->add('\n');
+        out->add('[');
+        out->append(section);
+        out->append("]\n");
+        j = 0;
+        while (j < keys->size()) {
+            const char *have;
+            long k;
+            long hd;
+            long hh;
+            long start;
+            long len;
+
+            have = keys->at(j)->c_str();
+            hd = -1;
+            hh = -1;
+            k = 0;
+            while (have[k] != 0) {
+                if (have[k] == '.' && hd < 0)
+                    hd = k;
+                if (have[k] == '#')
+                    hh = k;
+                k = k + 1;
+            }
+            if (hd == dot && text_starts(have, section) == 1) {
+                start = hd + 1;
+                if (hh >= 0)
+                    len = hh - start;
+                else {
+                    len = 0;
+                    while (have[start + len] != 0
+                            && have[start + len] != '.')
+                        len = len + 1;
+                }
+                if (len > 0 && len < 127) {
+                    k = 0;
+                    while (k < len) {
+                        name[k] = have[start + k];
+                        k = k + 1;
+                    }
+                    name[k] = 0;
+                    marker = new String();
+                    marker->append(section);
+                    marker->add('.');
+                    marker->append(name);
+                    if (hh >= 0) {
+                        if (text_has(have, "#0") == 1
+                                && j == find_key(keys->at(j)->c_str())) {
+                            long earlier;
+                            int wrote;
+
+                            wrote = 0;
+                            earlier = 0;
+                            while (earlier < j) {
+                                if (text_starts(
+                                            keys->at(earlier)->c_str(),
+                                            marker->c_str()) == 1
+                                        && text_has(
+                                                keys->at(earlier)->c_str(),
+                                                "#") == 1)
+                                    wrote = 1;
+                                earlier = earlier + 1;
+                            }
+                            if (wrote == 0)
+                                write_array(out, section, name);
+                        }
+                    }
+                    else if (text_has(have + start, ".") == 0) {
+                        out->append(name);
+                        out->append(" = ");
+                        write_scalar(out, vals->at(j)->c_str());
+                        out->add('\n');
+                    }
+                }
+            }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    return out;
+}
+
+#endif

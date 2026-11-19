@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(template LANGUAGES NONE)
+project(ide LANGUAGES NONE)
 
 # Binaries land next to the checkout, as they do for the compiler.
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin")
@@ -25,25 +25,48 @@ if(NOT SCPP)
         "Install smallcpp and run scripts/setup again.")
 endif()
 
-# Header and library search is scpp's. When ~/.config/smallcpp/config.ini
-# exists, scpp reads include, library, and runtime from it. This program
-# includes no header. A later #include uses that file.
-set(HELLO_SOURCE "${CMAKE_SOURCE_DIR}/src/hello.scpp")
-set(HELLO_PROGRAM "${CMAKE_SOURCE_DIR}/bin/hello")
+set(IDE_SOURCE "${CMAKE_SOURCE_DIR}/src/ide.scpp")
+set(IDE_PROGRAM "${CMAKE_SOURCE_DIR}/bin/ide")
+
+set(IDE_UNITS
+    "${CMAKE_SOURCE_DIR}/src/ide.scpp"
+    "${CMAKE_SOURCE_DIR}/src/ui.scpp"
+    "${CMAKE_SOURCE_DIR}/src/session.scpp"
+    "${CMAKE_SOURCE_DIR}/src/lsp.scpp"
+    "${CMAKE_SOURCE_DIR}/src/explorer.scpp"
+    "${CMAKE_SOURCE_DIR}/src/project.scpp"
+    "${CMAKE_SOURCE_DIR}/src/settings.scpp"
+    "${CMAKE_SOURCE_DIR}/src/document.scpp"
+    "${CMAKE_SOURCE_DIR}/src/syntax.scpp"
+    "${CMAKE_SOURCE_DIR}/src/toml.scpp"
+    "${CMAKE_SOURCE_DIR}/src/buffer.scpp"
+    "${CMAKE_SOURCE_DIR}/src/util.scpp")
 
 set(SCPP_FLAGS "")
 if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
     list(APPEND SCPP_FLAGS "-g")
 endif()
 
+set(IDE_LIBS
+    -l smallcpp_gtk
+    -l gtk-4
+    -l gio-2.0
+    -l gobject-2.0
+    -l glib-2.0
+    -l pango-1.0
+    -l pangocairo-1.0
+    -l cairo
+    -l pthread)
+
 add_custom_command(
-    OUTPUT "${HELLO_PROGRAM}"
+    OUTPUT "${IDE_PROGRAM}"
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_SOURCE_DIR}/bin"
-    COMMAND "${SCPP}" ${SCPP_FLAGS} -o "${HELLO_PROGRAM}" "${HELLO_SOURCE}"
+    COMMAND "${SCPP}" ${SCPP_FLAGS} -o "${IDE_PROGRAM}"
+            "${IDE_SOURCE}" ${IDE_LIBS}
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
-    DEPENDS "${HELLO_SOURCE}" "${SCPP}"
-    COMMENT "Compiling src/hello.scpp"
+    DEPENDS ${IDE_UNITS} "${SCPP}"
+    COMMENT "Compiling src/ide.scpp"
     VERBATIM)
-add_custom_target(hello ALL DEPENDS "${HELLO_PROGRAM}")
+add_custom_target(ide ALL DEPENDS "${IDE_PROGRAM}")
 
 add_subdirectory(tests)

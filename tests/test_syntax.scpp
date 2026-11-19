@@ -1,0 +1,47 @@
+#include "../src/syntax.scpp"
+
+static int failures;
+
+void expect(int cond, const char *msg) {
+    if (cond == 0) {
+        print("fail {:s}\n", msg);
+        failures = failures + 1;
+    }
+}
+
+int kind_at(Highlighter *light, long offset) {
+    long i;
+
+    i = 0;
+    while (i < light->count()) {
+        if (offset >= light->at(i)->start
+                && offset < light->at(i)->end)
+            return light->at(i)->kind;
+        i = i + 1;
+    }
+    return 0;
+}
+
+int main(void) {
+    Highlighter *light;
+
+    failures = 0;
+    light = new Highlighter();
+    light->scan("int value; // note\n", "scpp");
+    expect(kind_at(light, 0) == SPAN_KEYWORD, "keyword");
+    expect(kind_at(light, 4) == 0, "name");
+    expect(kind_at(light, 13) == SPAN_COMMENT, "comment");
+    light->scan("\"hi\" 12", "c");
+    expect(kind_at(light, 0) == SPAN_STRING, "string");
+    expect(kind_at(light, 5) == SPAN_NUMBER, "number");
+    light->scan("# head\n", "python");
+    expect(kind_at(light, 0) == SPAN_COMMENT, "hash");
+    light->scan("just text", "plain");
+    expect(light->count() == 0, "plain");
+    if (failures == 0) {
+        print("test-syntax ok\n");
+        return 0;
+    }
+    print("test-syntax failed {}\n", failures);
+    return 1;
+}

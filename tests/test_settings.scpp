@@ -1,0 +1,86 @@
+#include "../src/settings.scpp"
+
+static int failures;
+
+void expect(int cond, const char *msg) {
+    if (cond == 0) {
+        print("fail {:s}\n", msg);
+        failures = failures + 1;
+    }
+}
+
+int main(void) {
+    Settings *settings;
+    TomlDoc *project;
+    char canon[80];
+    char pattern[64];
+    char path[IDE_PATH];
+    char *dir;
+    String *text;
+
+    failures = 0;
+    settings = new Settings();
+    expect(settings->get_number("editor.font_size") == 12, "default size");
+    expect(settings->get_flag("editor.insert_spaces") == true,
+            "default spaces");
+    expect(text_same(settings->binding("save"), "<Control>s") == 1,
+            "default save");
+    expect(settings->canon_trigger(
+            "<Shift><Control>S",
+            canon,
+            80) == 1,
+            "canon ok");
+    expect(text_same(canon, "<Control><Shift>s") == 1, "canon order");
+    expect(settings->canon_trigger("<Control>", canon, 80) == 0,
+            "modifier only");
+    expect(settings->set_binding("save", "<Control>q") == 0,
+            "conflict");
+    expect(text_same(settings->binding("save"), "<Control>s") == 1,
+            "conflict keeps");
+    text = new String();
+    text->append("version = 1\n\n[editor]\nfont_size = 99\n");
+    expect(settings->load_text(text->c_str()) == 0, "bad size");
+    expect(settings->get_number("editor.font_size") == 12,
+            "size restored");
+    expect(settings->autosave() == 0, "no autosave");
+    settings = new Settings();
+    text = new String();
+    text->append("<Control>s=save\n<Control>o=open\n");
+    expect(settings->import_legacy(text->c_str()) == 1, "legacy");
+    expect(text_same(settings->binding("save"), "<Control>s") == 1,
+            "legacy save");
+    expect(text_same(settings->binding("quit"), "") == 1,
+            "legacy omits quit");
+    project = new TomlDoc();
+    project->set("editor.tab_width", "2");
+    expect(settings->effective_number(
+            "editor.tab_width",
+            project) == 2,
+            "override");
+    expect(settings->get_number("editor.tab_width") == 4,
+            "user stays");
+    text_copy(pattern, 64, "/tmp/ide-set-XXXXXX");
+    dir = mkdtemp(pattern);
+    expect(dir != nullptr, "temp");
+    if (dir != nullptr) {
+        path_join(path, IDE_PATH, dir, "ide.toml");
+        settings = new Settings();
+        settings->set_number("editor.tab_width", 8);
+        expect(settings->save_file(path) == 1, "write settings");
+        settings = new Settings();
+        expect(settings->load_file(path) == 1, "read settings");
+        expect(settings->get_number("editor.tab_width") == 8,
+                "loaded width");
+        expect(write_file(path, "version = 1\n", nullptr) == 1,
+                "clobber");
+        expect(settings->save_file(path) == 0, "refuse clobber");
+        unlink(path);
+        rmdir(dir);
+    }
+    if (failures == 0) {
+        print("test-settings ok\n");
+        return 0;
+    }
+    print("test-settings failed {}\n", failures);
+    return 1;
+}

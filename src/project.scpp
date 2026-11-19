@@ -1,0 +1,750 @@
+#ifndef IDE_PROJECT
+#define IDE_PROJECT
+
+/* A folder becomes a project when it contains
+ * .side/project.toml. Workspace state is the sibling
+ * workspace.toml. A symbolic-link .side is refused.
+ */
+#include "settings.scpp"
+
+class Project {
+public:
+    Project();
+    int open_root(const char *root);
+    int create_at(const char *root, int replace);
+    int save_project(void);
+    int save_copy(const char *root, int replace);
+    int remove_metadata(void);
+    void clear_project(void);
+    int is_project(void);
+    int broken(void);
+    const char *root(void);
+    const char *name(void);
+    void set_name(const char *value);
+    const char *error(void);
+    TomlDoc *config(void);
+    TomlDoc *workspace(void);
+    int excluded(const char *rel, const char *name);
+    void set_exclude_text(const char *csv);
+    String *exclude_text(void);
+    void clear_files(void);
+    int add_file(const char *path, long line, long column);
+    long file_count(void);
+    const char *file_at(long index);
+    long file_line(long index);
+    long file_column(long index);
+    void clear_expanded(void);
+    int add_expanded(const char *rel);
+    long expanded_count(void);
+    const char *expanded_at(long index);
+    void set_layout(long width, long height, long side);
+    long window_width(void);
+    long window_height(void);
+    long side_width(void);
+    void set_active(const char *path);
+    const char *active(void);
+    int has_metadata(const char *root);
+private:
+    String *rootPath;
+    String *errorText;
+    TomlDoc *cfg;
+    TomlDoc *work;
+    String *cfgSnap;
+    String *workSnap;
+    int projectOn;
+    int bad;
+    void set_error(const char *msg);
+    int side_path(char *dest, const char *root);
+    int file_path(char *dest, const char *root, const char *leaf);
+    int read_meta(const char *root);
+    int write_one(
+            const char *path,
+            TomlDoc *doc,
+            String **snap,
+            int seen);
+    int store_path(const char *path, char *stored, long cap);
+};
+
+Project::Project() {
+    rootPath = new String();
+    errorText = new String();
+    cfg = new TomlDoc();
+    work = new TomlDoc();
+    cfgSnap = new String();
+    workSnap = new String();
+    projectOn = 0;
+    bad = 0;
+}
+
+void project_num(char *dest, unsigned long cap, long value) {
+    snprintf(dest, cap, "%ld", value);
+}
+
+void project_slot(
+        char *dest,
+        unsigned long cap,
+        const char *prefix,
+        long index,
+        const char *tail) {
+    if (tail == nullptr)
+        tail = "";
+    snprintf(dest, cap, "%s#%ld%s", prefix, index, tail);
+}
+
+void Project::set_error(const char *msg) {
+    errorText->truncate(0, errorText->size());
+    if (msg != nullptr)
+        errorText->append(msg);
+}
+
+const char *Project::error(void) {
+    return errorText->c_str();
+}
+
+const char *Project::root(void) {
+    return rootPath->c_str();
+}
+
+int Project::is_project(void) {
+    return projectOn;
+}
+
+int Project::broken(void) {
+    return bad;
+}
+
+TomlDoc *Project::config(void) {
+    return cfg;
+}
+
+TomlDoc *Project::workspace(void) {
+    return work;
+}
+
+int Project::side_path(char *dest, const char *root) {
+    return path_normalize(dest, IDE_PATH, root) == 1
+            ? 1
+            : 0;
+}
+
+int Project::file_path(
+        char *dest,
+        const char *root,
+        const char *leaf) {
+    char side[IDE_PATH];
+
+    if (side_path(side, root) == 0)
+        return 0;
+    path_join(dest, IDE_PATH, side, ".side");
+    path_join(side, IDE_PATH, dest, leaf);
+    text_copy(dest, IDE_PATH, side);
+    return dest[0] != 0;
+}
+
+int Project::has_metadata(const char *root) {
+    char path[IDE_PATH];
+
+    if (file_path(path, root, "project.toml") == 0)
+        return 0;
+    return file_exists(path);
+}
+
+const char *Project::name(void) {
+    if (cfg->has("project.name") == 0)
+        return path_base(rootPath->c_str());
+    return cfg->get("project.name");
+}
+
+void Project::set_name(const char *value) {
+    if (value == nullptr)
+        value = "";
+    cfg->set("project.name", value);
+}
+
+int Project::read_meta(const char *root) {
+    char path[IDE_PATH];
+    char side[IDE_PATH];
+    char *raw;
+    long n;
+    const char *io;
+
+    projectOn = 0;
+    bad = 0;
+    cfg = new TomlDoc();
+    work = new TomlDoc();
+    cfgSnap = new String();
+    workSnap = new String();
+    rootPath = new String();
+    rootPath->append(root);
+    if (file_path(side, root, "project.toml") == 0) {
+        set_error("project path");
+        return 0;
+    }
+    path_dir(path, IDE_PATH, side);
+    if (file_is_link(path) == 1) {
+        bad = 1;
+        set_error("symlink");
+        return 0;
+    }
+    if (file_exists(side) == 0)
+        return 0;
+    io = "";
+    raw = read_file(side, &n, &io);
+    if (raw == nullptr) {
+        bad = 1;
+        set_error(io);
+        return 0;
+    }
+    if (n > 65536) {
+        bad = 1;
+        set_error("project too large");
+        return 0;
+    }
+    cfgSnap->append(raw);
+    if (cfg->parse(raw) == 0) {
+        bad = 1;
+        set_error("project toml");
+        return 0;
+    }
+    if (cfg->has("version") == 1
+            && text_same(cfg->get("version"), "1") == 0) {
+        bad = 1;
+        set_error("project version");
+        return 0;
+    }
+    if (file_path(path, root, "workspace.toml") == 1
+            && file_exists(path) == 1) {
+        io = "";
+        raw = read_file(path, &n, &io);
+        if (raw == nullptr || n > 1048576 || work->parse(raw) == 0) {
+            bad = 1;
+            set_error("workspace");
+            return 0;
+        }
+        workSnap->append(raw);
+    }
+    projectOn = 1;
+    set_error("");
+    return 1;
+}
+
+int Project::open_root(const char *root) {
+    char norm[IDE_PATH];
+
+    if (root == nullptr || file_is_dir(root) == 0) {
+        set_error("not a folder");
+        return 0;
+    }
+    if (realpath(root, norm) == nullptr) {
+        if (path_normalize(norm, IDE_PATH, root) == 0) {
+            set_error("project path");
+            return 0;
+        }
+    }
+    return read_meta(norm);
+}
+
+int Project::write_one(
+        const char *path,
+        TomlDoc *doc,
+        String **snap,
+        int seen) {
+    char *raw;
+    long n;
+    const char *io;
+    String *body;
+    char dir[IDE_PATH];
+
+    if (seen == 1 && file_exists(path) == 1) {
+        io = "";
+        raw = read_file(path, &n, &io);
+        if (raw == nullptr || text_same(raw, (*snap)->c_str()) == 0) {
+            set_error("changed on disk");
+            bad = 1;
+            return 0;
+        }
+    }
+    path_dir(dir, IDE_PATH, path);
+    if (ensure_dir(dir) == 0) {
+        set_error("save failed");
+        return 0;
+    }
+    if (doc->has("version") == 0)
+        doc->set("version", "1");
+    body = doc->write_text();
+    io = "";
+    if (write_file(path, body->c_str(), &io) == 0) {
+        set_error(io);
+        return 0;
+    }
+    *snap = new String();
+    (*snap)->append(body);
+    return 1;
+}
+
+int Project::create_at(const char *root, int replace) {
+    char norm[IDE_PATH];
+    char path[IDE_PATH];
+
+    if (open_root(root) == 0 && bad == 1)
+        return 0;
+    text_copy(norm, IDE_PATH, rootPath->c_str());
+    if (projectOn == 1 && replace == 0) {
+        set_error("exists");
+        return 2;
+    }
+    if (file_path(path, norm, "project.toml") == 0)
+        return 0;
+    cfg = new TomlDoc();
+    cfg->set("version", "1");
+    cfg->set("project.name", path_base(norm));
+    work = new TomlDoc();
+    work->set("version", "1");
+    cfgSnap = new String();
+    workSnap = new String();
+    projectOn = 1;
+    bad = 0;
+    if (save_project() == 0)
+        return 0;
+    return 1;
+}
+
+int Project::save_project(void) {
+    char path[IDE_PATH];
+
+    if (projectOn == 0 || bad == 1) {
+        set_error("cannot save");
+        return 0;
+    }
+    if (file_path(path, rootPath->c_str(), "project.toml") == 0)
+        return 0;
+    if (write_one(path, cfg, &cfgSnap, cfgSnap->size() > 0) == 0)
+        return 0;
+    if (file_path(path, rootPath->c_str(), "workspace.toml") == 0)
+        return 0;
+    if (write_one(path, work, &workSnap, workSnap->size() > 0) == 0)
+        return 0;
+    set_error("");
+    return 1;
+}
+
+int Project::store_path(const char *path, char *stored, long cap) {
+    char full[IDE_PATH];
+    char base[IDE_PATH];
+    long n;
+
+    if (path == nullptr)
+        return 0;
+    if (realpath(path, full) == nullptr) {
+        if (path_normalize(full, IDE_PATH, path) == 0)
+            return 0;
+    }
+    text_copy(base, IDE_PATH, rootPath->c_str());
+    n = text_length(base);
+    if (text_same(full, base) == 1) {
+        text_copy(stored, cap, "");
+        return 1;
+    }
+    if (n > 0 && text_starts(full, base) == 1 && full[n] == '/') {
+        text_copy(stored, cap, full + n + 1);
+        if (text_has(stored, "/../") == 1 || text_starts(stored, "../") == 1)
+            return 0;
+        return 1;
+    }
+    text_copy(stored, cap, full);
+    return 1;
+}
+
+void Project::clear_files(void) {
+    long i;
+    String *key;
+
+    i = 0;
+    while (i < 10000) {
+        char num[32];
+
+        snprintf(num, 32, "workspace.files#%ld.path", i);
+        if (work->has(num) == 0)
+            break;
+        key = new String();
+        key->append(num);
+        work->remove_key(key->c_str());
+        snprintf(num, 32, "workspace.files#%ld.line", i);
+        work->remove_key(num);
+        snprintf(num, 32, "workspace.files#%ld.column", i);
+        work->remove_key(num);
+        i = i + 1;
+    }
+}
+
+int Project::add_file(const char *path, long line, long column) {
+    char stored[IDE_PATH];
+    char num[48];
+    long index;
+
+    if (store_path(path, stored, IDE_PATH) == 0) {
+        set_error("bad path");
+        return 0;
+    }
+    if (line < 1)
+        line = 1;
+    if (column < 1)
+        column = 1;
+    index = file_count();
+    project_slot(num, 48, "workspace.files", index, ".path");
+    work->set(num, stored);
+    project_num(stored, IDE_PATH, line);
+    project_slot(num, 48, "workspace.files", index, ".line");
+    work->set(num, stored);
+    project_num(stored, IDE_PATH, column);
+    project_slot(num, 48, "workspace.files", index, ".column");
+    work->set(num, stored);
+    return 1;
+}
+
+long Project::file_count(void) {
+    char num[96];
+    long i;
+
+    i = 0;
+    while (1) {
+        project_slot(num, 96, "workspace.files", i, ".path");
+        if (work->has(num) == 0)
+            break;
+        i = i + 1;
+    }
+    return i;
+}
+
+const char *Project::file_at(long index) {
+    char num[96];
+
+    project_slot(num, 96, "workspace.files", index, ".path");
+    return work->get(num);
+}
+
+long Project::file_line(long index) {
+    char num[96];
+
+    project_slot(num, 96, "workspace.files", index, ".line");
+    return atol(work->get(num));
+}
+
+long Project::file_column(long index) {
+    char num[96];
+
+    project_slot(num, 96, "workspace.files", index, ".column");
+    return atol(work->get(num));
+}
+
+void Project::clear_expanded(void) {
+    char num[96];
+    long i;
+
+    i = 0;
+    while (1) {
+        project_slot(num, 96, "workspace.expanded", i, "");
+        if (work->has(num) == 0)
+            break;
+        work->remove_key(num);
+        i = i + 1;
+    }
+}
+
+int Project::add_expanded(const char *rel) {
+    char num[96];
+    long index;
+
+    if (rel == nullptr || pattern_ok(rel) == 0)
+        return 0;
+    index = expanded_count();
+    project_slot(num, 96, "workspace.expanded", index, "");
+    work->set(num, rel);
+    return 1;
+}
+
+long Project::expanded_count(void) {
+    char num[96];
+    long i;
+
+    i = 0;
+    while (1) {
+        project_slot(num, 96, "workspace.expanded", i, "");
+        if (work->has(num) == 0)
+            break;
+        i = i + 1;
+    }
+    return i;
+}
+
+const char *Project::expanded_at(long index) {
+    char num[96];
+
+    project_slot(num, 96, "workspace.expanded", index, "");
+    return work->get(num);
+}
+
+void Project::set_layout(long width, long height, long side) {
+    char num[32];
+
+    if (width < 200)
+        width = 200;
+    if (width > 10000)
+        width = 10000;
+    if (height < 150)
+        height = 150;
+    if (height > 10000)
+        height = 10000;
+    if (side < 0)
+        side = 0;
+    if (side > 5000)
+        side = 5000;
+    project_num(num, 32, width);
+    work->set("workspace.window_width", num);
+    project_num(num, 32, height);
+    work->set("workspace.window_height", num);
+    project_num(num, 32, side);
+    work->set("workspace.explorer_width", num);
+}
+
+long Project::window_width(void) {
+    if (work->has("workspace.window_width") == 0)
+        return 980;
+    return atol(work->get("workspace.window_width"));
+}
+
+long Project::window_height(void) {
+    if (work->has("workspace.window_height") == 0)
+        return 720;
+    return atol(work->get("workspace.window_height"));
+}
+
+long Project::side_width(void) {
+    if (work->has("workspace.explorer_width") == 0)
+        return 300;
+    return atol(work->get("workspace.explorer_width"));
+}
+
+void Project::set_active(const char *path) {
+    char stored[IDE_PATH];
+
+    if (store_path(path, stored, IDE_PATH) == 0)
+        work->set("workspace.active", "");
+    else
+        work->set("workspace.active", stored);
+}
+
+const char *Project::active(void) {
+    if (work->has("workspace.active") == 0)
+        return "";
+    return work->get("workspace.active");
+}
+
+int Project::excluded(const char *rel, const char *name) {
+    char num[96];
+    long i;
+    const char *pat;
+
+    i = 0;
+    while (1) {
+        project_slot(num, 96, "explorer.exclude", i, "");
+        if (cfg->has(num) == 0)
+            break;
+        pat = cfg->get(num);
+        if (text_has(pat, "/") == 1) {
+            if (glob_match(pat, rel) == 1)
+                return 1;
+        }
+        else if (glob_match(pat, name) == 1)
+            return 1;
+        i = i + 1;
+    }
+    return 0;
+}
+
+void Project::set_exclude_text(const char *csv) {
+    char num[96];
+    long i;
+    long start;
+    long n;
+    String *piece;
+    long index;
+    int ch;
+
+    i = 0;
+    while (1) {
+        project_slot(num, 96, "explorer.exclude", i, "");
+        if (cfg->has(num) == 0)
+            break;
+        cfg->remove_key(num);
+        i = i + 1;
+    }
+    if (csv == nullptr)
+        return;
+    n = text_length(csv);
+    i = 0;
+    index = 0;
+    while (i <= n) {
+        start = i;
+        while (i < n && csv[i] != ',')
+            i = i + 1;
+        while (start < i && (csv[start] == ' ' || csv[start] == '\t'))
+            start = start + 1;
+        while (i > start) {
+            ch = byte_at(csv, i - 1);
+            if (ch != ' ' && ch != '\t')
+                break;
+            i = i - 1;
+        }
+        if (i > start) {
+            piece = slice_text(csv, start, i);
+            if (pattern_ok(piece->c_str()) == 0) {
+                set_error("bad exclude");
+                return;
+            }
+            project_slot(
+                    num, 96, "explorer.exclude", index, "");
+            cfg->set(num, piece->c_str());
+            index = index + 1;
+        }
+        if (i < n && csv[i] == ',')
+            i = i + 1;
+        else
+            break;
+    }
+}
+
+String *Project::exclude_text(void) {
+    char num[96];
+    String *out;
+    long i;
+
+    out = new String();
+    i = 0;
+    while (1) {
+        project_slot(num, 96, "explorer.exclude", i, "");
+        if (cfg->has(num) == 0)
+            break;
+        if (i > 0)
+            out->append(", ");
+        out->append(cfg->get(num));
+        i = i + 1;
+    }
+    return out;
+}
+
+int Project::save_copy(const char *root, int replace) {
+    Project *copy;
+    long i;
+    char path[IDE_PATH];
+    int made;
+
+    if (projectOn == 0) {
+        set_error("no project");
+        return 0;
+    }
+    if (text_same(root, rootPath->c_str()) == 1) {
+        set_error("same root");
+        return 0;
+    }
+    copy = new Project();
+    made = copy->create_at(root, replace);
+    if (made == 2) {
+        set_error("exists");
+        return 2;
+    }
+    if (made == 0) {
+        set_error(copy->error());
+        return 0;
+    }
+    copy->set_name(name());
+    i = 0;
+    while (1) {
+        project_slot(path, IDE_PATH, "explorer.exclude", i, "");
+        if (cfg->has(path) == 0)
+            break;
+        copy->config()->set(path, cfg->get(path));
+        i = i + 1;
+    }
+    i = 0;
+    while (i < cfg->count()) {
+        const char *key;
+
+        key = cfg->key_at(i);
+        if (text_starts(key, "editor.") == 1)
+            copy->config()->set(key, cfg->get(key));
+        i = i + 1;
+    }
+    copy->clear_files();
+    i = 0;
+    while (i < file_count()) {
+        const char *stored;
+        int keep;
+
+        stored = file_at(i);
+        keep = 0;
+        if (path_is_abs(stored) == 1) {
+            if (file_exists(stored) == 1)
+                keep = 1;
+        }
+        else {
+            path_join(path, IDE_PATH, copy->root(), stored);
+            if (file_exists(path) == 1)
+                keep = 1;
+        }
+        if (keep == 1) {
+            const char *chosen;
+
+            chosen = stored;
+            if (path_is_abs(stored) == 0)
+                chosen = path;
+            copy->add_file(chosen, file_line(i), file_column(i));
+        }
+        i = i + 1;
+    }
+    copy->clear_expanded();
+    i = 0;
+    while (i < expanded_count()) {
+        path_join(path, IDE_PATH, copy->root(), expanded_at(i));
+        if (file_is_dir(path) == 1)
+            copy->add_expanded(expanded_at(i));
+        i = i + 1;
+    }
+    copy->set_layout(window_width(), window_height(), side_width());
+    if (copy->save_project() == 0) {
+        set_error(copy->error());
+        return 0;
+    }
+    return open_root(copy->root());
+}
+
+int Project::remove_metadata(void) {
+    char path[IDE_PATH];
+    char side[IDE_PATH];
+
+    if (projectOn == 0)
+        return 1;
+    if (file_path(path, rootPath->c_str(), "project.toml") == 0)
+        return 0;
+    path_dir(side, IDE_PATH, path);
+    if (file_is_link(side) == 1) {
+        set_error("symlink");
+        return 0;
+    }
+    unlink(path);
+    if (file_path(path, rootPath->c_str(), "workspace.toml") == 1)
+        unlink(path);
+    rmdir(side);
+    projectOn = 0;
+    bad = 0;
+    cfg = new TomlDoc();
+    work = new TomlDoc();
+    set_error("");
+    return 1;
+}
+
+void Project::clear_project(void) {
+    projectOn = 0;
+}
+
+#endif

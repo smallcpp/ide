@@ -1,0 +1,342 @@
+#ifndef IDE_EXPLORER
+#define IDE_EXPLORER
+
+/* A depth-first listing of one folder. Only expanded
+ * directories are read. Symlinks are leaves.
+ */
+#include "project.scpp"
+#include <dirent>
+
+enum {
+    ENTRY_DIR = 1,
+    ENTRY_FILE = 2,
+    ENTRY_LINK = 3,
+    ENTRY_OTHER = 4,
+    ENTRY_NOTE = 5
+};
+
+class ExplorerEntry {
+public:
+    String *label;
+    String *full;
+    String *rel;
+    int kind;
+    int depth;
+    int open;
+};
+
+VECTOR(EntryVec, ExplorerEntry *)
+
+class Explorer {
+public:
+    Explorer();
+    void set_root(const char *path);
+    void set_hidden(bool value);
+    bool hidden(void);
+    void use_project(Project *project);
+    void refresh(void);
+    void toggle(long index);
+    long count(void);
+    ExplorerEntry *at(long index);
+    const char *error(void);
+    void pin(const char *path);
+    int expanded(const char *rel);
+private:
+    String *rootPath;
+    String *errorText;
+    EntryVec *rows;
+    StringVec *openRels;
+    StringVec *pins;
+    Project *bound;
+    bool showHidden;
+    void add_note(const char *text, int depth);
+    int want_open(const char *rel);
+    void list_into(
+            const char *dir,
+            const char *rel,
+            int depth);
+    int before(ExplorerEntry *left, ExplorerEntry *right);
+};
+
+Explorer::Explorer() {
+    rootPath = new String();
+    errorText = new String();
+    rows = new EntryVec();
+    openRels = new StringVec();
+    pins = new StringVec();
+    bound = nullptr;
+    showHidden = false;
+}
+
+void Explorer::set_root(const char *path) {
+    char norm[IDE_PATH];
+
+    rootPath = new String();
+    openRels = new StringVec();
+    if (path == nullptr || path[0] == 0)
+        return;
+    if (realpath(path, norm) == nullptr)
+        text_copy(norm, IDE_PATH, path);
+    rootPath->append(norm);
+}
+
+void Explorer::set_hidden(bool value) {
+    showHidden = value;
+}
+
+bool Explorer::hidden(void) {
+    return showHidden;
+}
+
+void Explorer::use_project(Project *project) {
+    bound = project;
+}
+
+const char *Explorer::error(void) {
+    return errorText->c_str();
+}
+
+long Explorer::count(void) {
+    return rows->size();
+}
+
+ExplorerEntry *Explorer::at(long index) {
+    return rows->at(index);
+}
+
+int Explorer::expanded(const char *rel) {
+    return want_open(rel);
+}
+
+int Explorer::want_open(const char *rel) {
+    long i;
+
+    i = 0;
+    while (i < openRels->size()) {
+        if (text_same(openRels->at(i)->c_str(), rel) == 1)
+            return 1;
+        i = i + 1;
+    }
+    return 0;
+}
+
+void Explorer::add_note(const char *text, int depth) {
+    ExplorerEntry *row;
+
+    row = new ExplorerEntry();
+    row->label = new String();
+    row->label->append(text);
+    row->full = new String();
+    row->rel = new String();
+    row->kind = ENTRY_NOTE;
+    row->depth = depth;
+    row->open = 0;
+    rows->add(row);
+}
+
+int Explorer::before(ExplorerEntry *left, ExplorerEntry *right) {
+    const char *a;
+    const char *b;
+    long i;
+
+    if (left->kind == ENTRY_DIR && right->kind != ENTRY_DIR)
+        return 1;
+    if (right->kind == ENTRY_DIR && left->kind != ENTRY_DIR)
+        return 0;
+    a = left->label->c_str();
+    b = right->label->c_str();
+    i = 0;
+    while (a[i] != 0 && a[i] == b[i])
+        i = i + 1;
+    if (byte_at(a, i) < byte_at(b, i))
+        return 1;
+    return 0;
+}
+
+void Explorer::list_into(
+        const char *dir,
+        const char *rel,
+        int depth) {
+    DIR *handle;
+    struct dirent *item;
+    EntryVec *kids;
+    long i;
+    int badName;
+
+    handle = opendir(dir);
+    if (handle == nullptr) {
+        add_note("(cannot read)", depth);
+        return;
+    }
+    kids = new EntryVec();
+    badName = 0;
+    item = readdir(handle);
+    while (item != nullptr) {
+        ExplorerEntry *row;
+        char full[IDE_PATH];
+        const char *name;
+
+        name = item->d_name;
+        if (text_same(name, ".") == 1 || text_same(name, "..") == 1) {
+            item = readdir(handle);
+            continue;
+        }
+        if (utf8_ok(name, text_length(name)) == 0) {
+            badName = 1;
+            break;
+        }
+        if (showHidden == false && name[0] == '.') {
+            item = readdir(handle);
+            continue;
+        }
+        path_join(full, IDE_PATH, dir, name);
+        row = new ExplorerEntry();
+        row->label = new String();
+        row->label->append(name);
+        row->full = new String();
+        row->full->append(full);
+        row->rel = new String();
+        if (rel != nullptr && rel[0] != 0) {
+            row->rel->append(rel);
+            row->rel->add('/');
+        }
+        row->rel->append(name);
+        row->depth = depth;
+        row->open = 0;
+        if (file_is_link(full) == 1)
+            row->kind = ENTRY_LINK;
+        else if (file_is_dir(full) == 1)
+            row->kind = ENTRY_DIR;
+        else if (file_is_reg(full) == 1)
+            row->kind = ENTRY_FILE;
+        else
+            row->kind = ENTRY_OTHER;
+        if (bound != nullptr
+                && bound->excluded(
+                        row->rel->c_str(),
+                        name) == 1) {
+            item = readdir(handle);
+            continue;
+        }
+        kids->add(row);
+        item = readdir(handle);
+    }
+    closedir(handle);
+    if (badName == 1) {
+        errorText->truncate(0, errorText->size());
+        errorText->append("directory names are not utf-8");
+        add_note("(names are not utf-8)", depth);
+        return;
+    }
+    i = 1;
+    while (i < kids->size()) {
+        ExplorerEntry *row;
+        long j;
+
+        row = kids->at(i);
+        j = i;
+        while (j > 0 && before(row, kids->at(j - 1)) == 1) {
+            kids->replace(j, kids->at(j - 1));
+            j = j - 1;
+        }
+        kids->replace(j, row);
+        i = i + 1;
+    }
+    if (kids->size() == 0)
+        add_note("(empty)", depth);
+    i = 0;
+    while (i < kids->size()) {
+        ExplorerEntry *row;
+
+        row = kids->at(i);
+        if (row->kind == ENTRY_DIR && want_open(row->rel->c_str()) == 1)
+            row->open = 1;
+        rows->add(row);
+        if (row->open == 1)
+            list_into(row->full->c_str(), row->rel->c_str(), depth + 1);
+        i = i + 1;
+    }
+}
+
+void Explorer::pin(const char *path) {
+    long i;
+
+    if (path == nullptr || path[0] == 0)
+        return;
+    i = 0;
+    while (i < pins->size()) {
+        if (text_same(pins->at(i)->c_str(), path) == 1)
+            return;
+        i = i + 1;
+    }
+    pins->add(new String());
+    pins->at(pins->size() - 1)->append(path);
+}
+
+void Explorer::refresh(void) {
+    long i;
+
+    rows = new EntryVec();
+    errorText = new String();
+    if (rootPath->size() == 0)
+        return;
+    list_into(rootPath->c_str(), "", 0);
+    i = 0;
+    while (i < pins->size()) {
+        ExplorerEntry *row;
+        long j;
+        int seen;
+
+        seen = 0;
+        j = 0;
+        while (j < rows->size()) {
+            if (text_same(
+                        rows->at(j)->full->c_str(),
+                        pins->at(i)->c_str()) == 1)
+                seen = 1;
+            j = j + 1;
+        }
+        if (seen == 0 && file_exists(pins->at(i)->c_str()) == 1) {
+            row = new ExplorerEntry();
+            row->label = new String();
+            row->label->append(pins->at(i)->c_str());
+            row->full = new String();
+            row->full->append(pins->at(i)->c_str());
+            row->rel = new String();
+            row->rel->append(pins->at(i)->c_str());
+            row->kind = ENTRY_FILE;
+            row->depth = 0;
+            row->open = 0;
+            rows->add(row);
+        }
+        i = i + 1;
+    }
+}
+
+void Explorer::toggle(long index) {
+    ExplorerEntry *row;
+    long i;
+
+    if (index < 0 || index >= rows->size())
+        return;
+    row = rows->at(index);
+    if (row->kind != ENTRY_DIR)
+        return;
+    if (want_open(row->rel->c_str()) == 1) {
+        i = 0;
+        while (i < openRels->size()) {
+            if (text_same(openRels->at(i)->c_str(), row->rel->c_str()) == 1) {
+                openRels->remove(i);
+                break;
+            }
+            i = i + 1;
+        }
+    }
+    else {
+        openRels->add(new String());
+        openRels->at(openRels->size() - 1)->append(row->rel->c_str());
+    }
+    refresh();
+}
+
+#endif

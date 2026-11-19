@@ -1,5 +1,5 @@
 if(NOT DEFINED PROGRAM OR NOT DEFINED NEEDLE)
-    message(FATAL_ERROR "hello check is missing a path")
+    message(FATAL_ERROR "test check is missing a path")
 endif()
 
 execute_process(
@@ -8,10 +8,11 @@ execute_process(
     OUTPUT_VARIABLE program_output
     ERROR_VARIABLE program_error)
 if(NOT run_status EQUAL 0)
-    message(FATAL_ERROR "hello exited ${run_status}: ${program_error}")
+    message(FATAL_ERROR
+        "${PROGRAM} exited ${run_status}: ${program_output}${program_error}")
 endif()
 
 set(expected "${NEEDLE}\n")
 if(NOT program_output STREQUAL "${expected}")
-    message(FATAL_ERROR "hello wrote '${program_output}'")
+    message(FATAL_ERROR "${PROGRAM} wrote '${program_output}'")
 endif()
