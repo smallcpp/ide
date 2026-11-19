@@ -324,7 +324,7 @@ Ui::Ui(Session *session) {
     }
     i = 0;
     while (i < IDE_ROWS) {
-        rows[i] = new String();
+        rows[i] = nullptr;
         i = i + 1;
     }
     ideUi = this;
@@ -664,6 +664,8 @@ void Ui::fill_lists(void) {
     i = 0;
     while (i < tree->count() && i < IDE_ROWS) {
         row = tree->at(i);
+        if (rows[i] == nullptr)
+            rows[i] = new String();
         rows[i]->truncate(0, rows[i]->size());
         depth = 0;
         while (depth < row->depth && depth < 16) {

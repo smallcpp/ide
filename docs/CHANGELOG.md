@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+Startup was slow because the collector runs on every allocation and
+scans every word of every live object. The LSP frame buffer and the
+diagnostic table were collected objects, so each widget built after
+them scanned that storage. Those buffers now come from `malloc`. The
+file list creates a row string when the row is shown. A missing
+settings file does not build the defaults a second time.
+
 A normal `build` compiles `bin/ide` and leaves the test programs
 unbuilt. `build test` builds `bin/ide` and `test-buffer`,
 `test-toml`, `test-document`, `test-syntax`, `test-settings`,

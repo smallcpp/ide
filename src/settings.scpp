@@ -827,7 +827,8 @@ int Settings::load_file(const char *path) {
         if (text_same(io, "open failed") == 1) {
             sawFile = 0;
             snapshot = new String();
-            reset_defaults();
+            if (file->count() == 0)
+                reset_defaults();
             return 1;
         }
         note(io);
