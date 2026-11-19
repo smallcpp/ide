@@ -1,6 +1,6 @@
 # docs
 
-[ide.md](ide.md) describes the editor.
+[ide.md](ide.md) describes the editor, including how to build and install it.
 
 [limits.md](limits.md) lists behavior the current language or the GTK
 wrapper cannot match, and the behavior used instead.

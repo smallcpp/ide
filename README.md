@@ -15,20 +15,31 @@ and library locations from it. A checkout of the compiler can be put
 on `PATH` by adding its `bin` directory.
 
 Use the scripts in `scripts/`. Do not run `cmake` yourself to
-configure, build, or test.
+configure, build, test, or install.
 
 ```sh
 scripts/setup
 build
 build test
+install
 ../bin/ide --help
 exit
 ```
 
 `scripts/setup [--clean] [debug|release|profile]` configures `build/`
 and starts a project shell. `build` compiles `src/ide.scpp`. `build
-test` compiles the unit tests and runs them. `scripts/clean` removes
-the build products. Nothing is installed. Run `bin/ide`.
+test` compiles the unit tests and runs them. `install` builds `ide`
+and copies `bin/ide` into the prefix. `scripts/clean` removes the
+build products in the checkout. It leaves an installed copy where
+it is.
+
+`install` with no argument uses the prefix selected at
+configuration. A fresh configuration installs to `$HOME/opt/ide`.
+The program is `$HOME/opt/ide/bin/ide`. `install /absolute/path`
+and `install --prefix /absolute/path` install to that prefix for
+this run. From the checkout root, `scripts/install` and
+`scripts/install /absolute/path` are the same commands. A relative
+prefix is rejected.
 
 What the editor does is described in
 [docs/ide.md](docs/ide.md). Behavior the language or the GTK wrapper
