@@ -26,11 +26,12 @@ public:
 class LspFramer {
 public:
     LspFramer();
+    ~LspFramer();
     void reset(void);
     int push(const char *bytes, long n);
     int pop(char *dest, long cap, long *outN);
 private:
-    char buf[IDE_LSP_FRAME];
+    char *buf;
     long used;
     int take_header(long *body, long *start);
 };
@@ -76,6 +77,7 @@ void *lsp_reader(void *arg) {
 class LspClient {
 public:
     LspClient();
+    ~LspClient();
     int start(const char *command);
     void stop(void);
     int running(void);
@@ -97,7 +99,7 @@ public:
     LspFramer *framer(void);
 private:
     LspFramer *frames;
-    LspDiag diags[IDE_LSP_DIAGS];
+    LspDiag *diags;
     long diagN;
     int toFd;
     int fromFd;
@@ -135,9 +137,23 @@ int lsp_header_value(const char *text, long n, long *at) {
     return 0;
 }
 
+/* malloc, not new. The collector scans every word of a
+ * live object, so a 64KB frame buffer on the heap makes
+ * each later allocation collect the whole buffer.
+ */
 LspFramer::LspFramer() {
     used = 0;
+    buf = (char *)malloc((unsigned long)IDE_LSP_FRAME);
+    if (buf == nullptr)
+        throw *new Exception("lsp");
     buf[0] = 0;
+}
+
+LspFramer::~LspFramer() {
+    if (buf != nullptr) {
+        free((void *)buf);
+        buf = nullptr;
+    }
 }
 
 void LspFramer::reset(void) {
@@ -302,6 +318,11 @@ int lsp_parse_diags(
 
 LspClient::LspClient() {
     frames = new LspFramer();
+    diags = (LspDiag *)malloc(
+            (unsigned long)sizeof(LspDiag)
+            * (unsigned long)IDE_LSP_DIAGS);
+    if (diags == nullptr)
+        throw *new Exception("lsp");
     diagN = 0;
     toFd = -1;
     fromFd = -1;
@@ -313,6 +334,13 @@ LspClient::LspClient() {
     if (lspMuReady == 0) {
         pthread_mutex_init(&lspMu, nullptr);
         lspMuReady = 1;
+    }
+}
+
+LspClient::~LspClient() {
+    if (diags != nullptr) {
+        free((void *)diags);
+        diags = nullptr;
     }
 }
 
