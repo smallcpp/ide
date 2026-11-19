@@ -8,10 +8,12 @@ Build, test, and install it with the scripts in the root `README.md`.
 Do not run `cmake` yourself. `scripts/setup`, then `build`, then
 `install`, then `bin/ide`. `install` copies `bin/ide` to `bin/ide`
 under the prefix. A fresh configuration uses `$HOME/opt/ide`.
-`install /absolute/path` selects that prefix for one run. `build test`
-runs the unit tests. Those tests cover the buffer, files, settings,
-projects, the file list, the language-client framing, and the session
-commands. They do not open a window.
+`install /absolute/path` selects that prefix for one run. A normal
+`build` compiles the editor and leaves the test programs unbuilt.
+`build test` builds those programs and runs the unit tests. Those
+tests cover the buffer, files, settings, projects, the file list,
+the language-client framing, and the session commands. They do not
+open a window.
 
 ## Starting
 

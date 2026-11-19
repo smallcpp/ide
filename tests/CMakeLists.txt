@@ -25,7 +25,7 @@ foreach(name ${IDE_TESTS})
         DEPENDS "${source}" ${IDE_UNITS} "${SCPP}"
         COMMENT "Compiling tests/test_${name}.scpp"
         VERBATIM)
-    add_custom_target(test-${name} ALL DEPENDS "${program}")
+    add_custom_target(test-${name} DEPENDS "${program}")
     add_test(
         NAME test-${name}
         COMMAND ${CMAKE_COMMAND}

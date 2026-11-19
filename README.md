@@ -27,8 +27,9 @@ exit
 ```
 
 `scripts/setup [--clean] [debug|release|profile]` configures `build/`
-and starts a project shell. `build` compiles `src/ide.scpp`. `build
-test` compiles the unit tests and runs them. `install` builds `ide`
+and starts a project shell. `build` compiles `src/ide.scpp` and
+leaves the test programs unbuilt. `build test` builds `ide` and
+those programs, then runs the suite. `install` builds `ide`
 and copies `bin/ide` into the prefix. `scripts/clean` removes the
 build products in the checkout. It leaves an installed copy where
 it is.

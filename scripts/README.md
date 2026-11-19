@@ -7,7 +7,8 @@ or install.
 
 - `setup [--clean] [debug|release|profile]` configures `build/` and
   starts a project shell. `build` in that shell compiles
-  `src/ide.scpp` with `scpp`. `build test` runs the suite. `--clean`
+  `src/ide.scpp` with `scpp` and leaves the test programs unbuilt.
+  `build test` builds those programs and runs the suite. `--clean`
   runs `clean` first. `debug`, `release`, and `profile` select the
   CMake build type. `debug` and `profile` pass `-g` to `scpp`.
 - `install [prefix]` builds `ide` and installs `bin/ide`. With no
