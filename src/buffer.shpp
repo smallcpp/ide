@@ -1,0 +1,152 @@
+#ifndef IDE_BUFFER
+#define IDE_BUFFER
+
+/* Editable text, undo, search, and the line commands.
+ * Offsets are bytes. Lines and columns that cross the
+ * GTK view are character positions, zero-based there
+ * and one-based in move_to.
+ */
+#include "util.shpp"
+
+class EditMark {
+public:
+    String *text;
+    long cursor;
+    long anchor;
+    bool dirty;
+    bool scopeOn;
+    long scopeStart;
+    long scopeEnd;
+};
+
+class MarkVec : public Array {
+public:
+    MarkVec();
+    void add(EditMark * value);
+    EditMark * at(long index);
+    long find(EditMark * value);
+    void replace(long index, EditMark * value);
+    void insert(long index, EditMark * value);
+    void remove(long index);
+    EditMark * next(long *cursor);
+};
+
+class EditBuffer {
+public:
+    EditBuffer();
+    void set_text(const char *value);
+    const char *text(void);
+    long size(void);
+    bool dirty(void);
+    void mark_clean(void);
+    void mark_dirty(void);
+    long cursor_offset(void);
+    long anchor_offset(void);
+    void set_cursor_offset(long offset);
+    void select_all(void);
+    bool has_selection(void);
+    long sel_lo(void);
+    long sel_hi(void);
+    String *selected(void);
+    long line_count(void);
+    long cursor_line(void);
+    long cursor_column(void);
+    void line_column_at(
+            long offset,
+            long *line,
+            long *column);
+    long byte_at_line(long line, long column);
+    void move_to(long line, long column);
+    void select_span(
+            long line,
+            long column,
+            long line2,
+            long column2);
+    void insert_text(const char *value);
+    void backspace(void);
+    void delete_forward(void);
+    bool can_undo(void);
+    bool can_redo(void);
+    void undo(void);
+    void redo(void);
+    void strip_trailing(void);
+    void toggle_line_comment(const char *leader);
+    void toggle_block_comment(void);
+    void indent_lines(long width, bool spaces);
+    void outdent_lines(long width, bool spaces);
+    void insert_column(const char *value);
+    void delete_column(void);
+    int find_next(
+            const char *query,
+            bool matchCase,
+            bool whole,
+            bool inSel);
+    int replace_next(
+            const char *query,
+            const char *repl,
+            bool matchCase,
+            bool whole,
+            bool inSel);
+    int replace_all(
+            const char *query,
+            const char *repl,
+            bool matchCase,
+            bool whole,
+            bool inSel);
+    void capture_scope(void);
+    void clear_scope(void);
+    bool scope_active(void);
+    void set_auto_brackets(bool value);
+    void set_auto_indent(bool value);
+    bool auto_brackets(void);
+    bool auto_indent(void);
+    int note_external(const char *value);
+    bool selection_one_line(void);
+private:
+    String *body;
+    long cursor;
+    long anchor;
+    bool dirtyFlag;
+    bool scopeOn;
+    long scopeStart;
+    long scopeEnd;
+    bool hasMatch;
+    long matchStart;
+    long matchEnd;
+    bool brackets;
+    bool indentOn;
+    bool multi;
+    MarkVec *undoStack;
+    MarkVec *redoStack;
+    void assign(const char *value);
+    void clamp_point(void);
+    void push_undo(void);
+    void clear_marks(MarkVec *marks);
+    void restore(EditMark *mark);
+    void splice(long from, long to, const char *value);
+    void shift_scope(long at, long delta);
+    int match_at(
+            long index,
+            const char *query,
+            bool matchCase,
+            bool whole);
+    long find_from(
+            long from,
+            long limit,
+            const char *query,
+            bool matchCase,
+            bool whole);
+    void replace_span(long from, long to, const char *repl);
+    void finish_brackets(
+            long prefix,
+            long insLen,
+            long delLen,
+            const char *oldText,
+            long oldFrom,
+            long oldTo);
+    void line_range(long *first, long *last);
+    bool spans_lines(void);
+    int leading_indent(long lineStart, long *indentEnd);
+};
+
+#endif

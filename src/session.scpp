@@ -1,200 +1,193 @@
-#ifndef IDE_SESSION
-#define IDE_SESSION
+#include "session.shpp"
 
-/* Headless editor state. The window calls these methods.
- * Choices come back through answer() and provide_path().
- */
-#include "document.scpp"
-#include "explorer.scpp"
-#include "lsp.scpp"
+DocVec::DocVec() : Array((long)sizeof(Document *)) {
+}
 
-enum {
-    IDE_OK = 0,
-    IDE_FAILED = 1,
-    IDE_CANCELLED = 2,
-    IDE_NEEDS_CHOICE = 3,
-    IDE_NEEDS_PATH = 4,
-    IDE_CHOOSE_OPEN = 5,
-    IDE_CHOOSE_SAVE = 6,
-    IDE_CHOOSE_FOLDER = 7
-};
+void DocVec::add(Document * value) {
+    Document * *place;
+    reserve(count + 1);
+    place = (Document * *)(bytes + count * stride);
+    *place = value;
+    count = count + 1;
+}
 
-enum {
-    IDE_SAVE = 1,
-    IDE_DISCARD = 2,
-    IDE_CANCEL = 3,
-    IDE_CONTINUE = 4
-};
+Document * DocVec::at(long index) {
+    Document * *place;
+    if (index < 0)
+        index = count + index;
+    if (index < 0 || index >= count)
+        throw *new Exception("index");
+    place = (Document * *)address(index);
+    return *place;
+}
 
-enum {
-    PEND_NONE = 0,
-    PEND_CLOSE = 1,
-    PEND_CLOSE_ALL = 2,
-    PEND_QUIT = 3,
-    PEND_OPEN_PROJECT = 4,
-    PEND_WORKSPACE = 5
-};
+long DocVec::find(Document * value) {
+    Document * *place;
+    long i;
+    i = 0;
+    while (i < count) {
+        place = (Document * *)(bytes + i * stride);
+        if (*place == value)
+            return i;
+        i = i + 1;
+    }
+    return -1;
+}
 
-enum {
-    RESUME_NONE = 0,
-    RESUME_FOLDER = 1,
-    RESUME_NEW_PROJECT = 2,
-    RESUME_SAVE_AS = 3,
-    RESUME_CLOSE_PROJECT = 4,
-    RESUME_QUIT = 5,
-    RESUME_OPEN = 6
-};
+void DocVec::replace(long index, Document * value) {
+    Document * *place;
+    if (index < 0)
+        index = count + index;
+    if (index < 0 || index >= count)
+        throw *new Exception("index");
+    place = (Document * *)address(index);
+    *place = value;
+}
 
-VECTOR(DocVec, Document *)
+void DocVec::insert(long index, Document * value) {
+    Document * *place;
+    long i;
+    if (index < 0)
+        index = count + index;
+    if (index < 0)
+        index = 0;
+    if (index > count)
+        index = count;
+    reserve(count + 1);
+    i = count;
+    while (i > index) {
+        place = (Document * *)(bytes + i * stride);
+        *place = *(Document * *)(bytes + (i - 1) * stride);
+        i = i - 1;
+    }
+    place = (Document * *)(bytes + index * stride);
+    *place = value;
+    count = count + 1;
+}
 
-class SearchHit {
-public:
-    String *path;
-    long line;
-    String *text;
-};
+void DocVec::remove(long index) {
+    Document * *place;
+    long i;
+    if (index < 0)
+        index = count + index;
+    if (index < 0 || index >= count)
+        throw *new Exception("index");
+    i = index;
+    while (i + 1 < count) {
+        place = (Document * *)(bytes + i * stride);
+        *place = *(Document * *)(bytes + (i + 1) * stride);
+        i = i + 1;
+    }
+    count = count - 1;
+}
 
-VECTOR(HitVec, SearchHit *)
+Document * DocVec::next(long *cursor) {
+    long index;
+    if (cursor == nullptr)
+        throw *new Exception("index");
+    index = *cursor;
+    if (index < 0)
+        index = count + index;
+    if (index < 0 || index >= count)
+        throw *new Exception("index");
+    *cursor = index + 1;
+    return at(index);
+}
 
-class Session {
-public:
-    Session();
-    Document *active(void);
-    long count(void);
-    Document *at(long index);
-    long index(void);
-    void set_index(long index);
-    int new_file(void);
-    int open_file(const char *path);
-    int open_argument(const char *path);
-    int save_active(void);
-    int save_as(const char *path);
-    int save_all(void);
-    void allow_overwrite(int value);
-    int close_active(void);
-    int close_all(void);
-    int quit(void);
-    int answer(int choice);
-    int provide_path(const char *path);
-    int run(const char *command);
-    int quit_ready(void);
-    int pending(void);
-    const char *status(void);
-    const char *error(void);
-    long recent_count(void);
-    const char *recent_at(long index);
-    void set_query(const char *text);
-    void set_replacement(const char *text);
-    void set_match_case(bool value);
-    void set_whole_word(bool value);
-    void set_in_selection(bool value);
-    const char *query(void);
-    int begin_find(void);
-    int find_again(void);
-    int replace_one(void);
-    int replace_every(void);
-    void goto_line(const char *spec);
-    Settings *settings(void);
-    Project *project(void);
-    Explorer *explorer(void);
-    LspClient *lsp(void);
-    int open_folder(const char *path);
-    int project_new(const char *path, int replace);
-    int project_open(const char *path);
-    int project_close(void);
-    int project_save(void);
-    int project_save_as(const char *path, int replace);
-    int project_delete(void);
-    int project_configure(const char *csv);
-    void set_view_flag(const char *key, bool value);
-    bool view_flag(const char *key);
-    int search_project(const char *text);
-    long hit_count(void);
-    const char *hit_path(long index);
-    long hit_line(long index);
-    const char *hit_text(long index);
-    int snapshot_recovery(void);
-    int recovery_pending(void);
-    const char *recovery_path(void);
-    int restore_recovery(void);
-    int discard_recovery(void);
-    void poll_disk(void);
-    void apply_editor_prefs(void);
-    void use_config_dir(const char *dir);
-    int load_settings(void);
-    int save_settings(void);
-    const char *settings_path(void);
-    void plugin_time(void);
-    void plugin_debug(void);
-    int clipboard_copy(void);
-    int clipboard_cut(void);
-    int clipboard_paste(void);
-    const char *clipboard(void);
-    void save_on_window_loss(void);
-    int reopen_or_new(void);
-    int show_preferences(void);
-    int show_about(void);
-    int chooser(void);
-private:
-    DocVec *docs;
-    long activeIndex;
-    Settings *prefs;
-    Project *proj;
-    Explorer *tree;
-    LspClient *client;
-    HitVec *hits;
-    String *recent[20];
-    long recentN;
-    String *queryText;
-    String *replaceText;
-    String *clip;
-    String *errorText;
-    String *statusText;
-    String *configDir;
-    String *resumePath;
-    String *settingsFile;
-    String *recoveryFile;
-    int pend;
-    int resumeKind;
-    int resumeReplace;
-    int quitReady;
-    int allowOverwrite;
-    int workspaceBypass;
-    int recoveryOn;
-    int openedArgs;
-    int prefsOpen;
-    int aboutOpen;
-    int choose;
-    bool matchCase;
-    bool wholeWord;
-    bool inSelection;
-    void set_error(const char *msg);
-    void remember_recent(const char *path);
-    int next_dirty(void);
-    int advance(void);
-    void drop_one(long index);
-    void ensure_document(void);
-    int prepare_switch(int kind, const char *path, int replace);
-    int after_workspace(void);
-    int open_folder_now(const char *path);
-    int project_new_now(const char *path, int replace);
-    int project_save_as_now(const char *path, int replace);
-    int project_close_now(void);
-    int finish_open_project(void);
-    int load_project(const char *path);
-    void capture_workspace(void);
-    void fill_settings_path(char *dest);
-    void load_local(void);
-    int recovery_file(Document *doc, char *dest);
-    void consider_recovery(Document *doc);
-    void search_dir(
-            const char *dir,
-            const char *rel,
-            const char *text,
-            int depth);
-    int save_named(Document *doc);
-    void poll_command_views(const char *command);
-};
+HitVec::HitVec() : Array((long)sizeof(SearchHit *)) {
+}
+
+void HitVec::add(SearchHit * value) {
+    SearchHit * *place;
+    reserve(count + 1);
+    place = (SearchHit * *)(bytes + count * stride);
+    *place = value;
+    count = count + 1;
+}
+
+SearchHit * HitVec::at(long index) {
+    SearchHit * *place;
+    if (index < 0)
+        index = count + index;
+    if (index < 0 || index >= count)
+        throw *new Exception("index");
+    place = (SearchHit * *)address(index);
+    return *place;
+}
+
+long HitVec::find(SearchHit * value) {
+    SearchHit * *place;
+    long i;
+    i = 0;
+    while (i < count) {
+        place = (SearchHit * *)(bytes + i * stride);
+        if (*place == value)
+            return i;
+        i = i + 1;
+    }
+    return -1;
+}
+
+void HitVec::replace(long index, SearchHit * value) {
+    SearchHit * *place;
+    if (index < 0)
+        index = count + index;
+    if (index < 0 || index >= count)
+        throw *new Exception("index");
+    place = (SearchHit * *)address(index);
+    *place = value;
+}
+
+void HitVec::insert(long index, SearchHit * value) {
+    SearchHit * *place;
+    long i;
+    if (index < 0)
+        index = count + index;
+    if (index < 0)
+        index = 0;
+    if (index > count)
+        index = count;
+    reserve(count + 1);
+    i = count;
+    while (i > index) {
+        place = (SearchHit * *)(bytes + i * stride);
+        *place = *(SearchHit * *)(bytes + (i - 1) * stride);
+        i = i - 1;
+    }
+    place = (SearchHit * *)(bytes + index * stride);
+    *place = value;
+    count = count + 1;
+}
+
+void HitVec::remove(long index) {
+    SearchHit * *place;
+    long i;
+    if (index < 0)
+        index = count + index;
+    if (index < 0 || index >= count)
+        throw *new Exception("index");
+    i = index;
+    while (i + 1 < count) {
+        place = (SearchHit * *)(bytes + i * stride);
+        *place = *(SearchHit * *)(bytes + (i + 1) * stride);
+        i = i + 1;
+    }
+    count = count - 1;
+}
+
+SearchHit * HitVec::next(long *cursor) {
+    long index;
+    if (cursor == nullptr)
+        throw *new Exception("index");
+    index = *cursor;
+    if (index < 0)
+        index = count + index;
+    if (index < 0 || index >= count)
+        throw *new Exception("index");
+    *cursor = index + 1;
+    return at(index);
+}
+
 
 void ide_write_help(void) {
     fputs("usage: ide [file or folder]...\n", stdout);
@@ -1795,5 +1788,3 @@ const char *Session::status(void) {
     }
     return statusText->c_str();
 }
-
-#endif

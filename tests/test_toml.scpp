@@ -1,4 +1,4 @@
-#include "../src/toml.scpp"
+#include "../src/toml.shpp"
 
 static int failures;
 

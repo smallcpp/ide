@@ -1,40 +1,6 @@
-#ifndef IDE_LSP
-#define IDE_LSP
+#include "lsp.shpp"
 
-/* A small language-server client. The reader thread
- * copies bytes into a fixed buffer. It does not allocate.
- * The GUI thread drains that buffer and parses diagnostics.
- */
-#include "util.scpp"
-#include <pthread>
-#include <spawn>
-#include <time>
-#include <unistd>
 
-enum {
-    IDE_LSP_DIAGS = 64,
-    IDE_LSP_FRAME = 65536,
-    IDE_LSP_ARGS = 8
-};
-
-class LspDiag {
-public:
-    long line;
-    char message[160];
-};
-
-class LspFramer {
-public:
-    LspFramer();
-    ~LspFramer();
-    void reset(void);
-    int push(const char *bytes, long n);
-    int pop(char *dest, long cap, long *outN);
-private:
-    char *buf;
-    long used;
-    int take_header(long *body, long *start);
-};
 
 static char lspInbox[IDE_LSP_FRAME];
 static long lspInboxN;
@@ -73,46 +39,6 @@ void *lsp_reader(void *arg) {
     pthread_mutex_unlock(&lspMu);
     return nullptr;
 }
-
-class LspClient {
-public:
-    LspClient();
-    ~LspClient();
-    int start(const char *command);
-    void stop(void);
-    int running(void);
-    int allowed(const char *command, const char *path);
-    int write_raw(const char *bytes, long n);
-    void finish_write(void);
-    int saw_eof(void);
-    void did_open(
-            const char *path,
-            const char *lang,
-            const char *text);
-    void did_change(const char *path, const char *text);
-    void did_close(const char *path);
-    int drain(void);
-    long diag_count(void);
-    long diag_line(long index);
-    const char *diag_message(long index);
-    const char *error(void);
-    LspFramer *framer(void);
-private:
-    LspFramer *frames;
-    LspDiag *diags;
-    long diagN;
-    int toFd;
-    int fromFd;
-    int alive;
-    pid_t child;
-    pthread_t thread;
-    int joined;
-    String *errorText;
-    String *commandText;
-    void set_error(const char *msg);
-    int send_json(const char *json);
-    void clear_diags(void);
-};
 
 int lsp_header_value(const char *text, long n, long *at) {
     long i;
@@ -665,5 +591,3 @@ const char *LspClient::diag_message(long index) {
         return "";
     return diags[index].message;
 }
-
-#endif

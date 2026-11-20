@@ -1,0 +1,68 @@
+#ifndef IDE_PROJECT
+#define IDE_PROJECT
+
+/* A folder becomes a project when it contains
+ * .side/project.toml. Workspace state is the sibling
+ * workspace.toml. A symbolic-link .side is refused.
+ */
+#include "settings.shpp"
+
+class Project {
+public:
+    Project();
+    int open_root(const char *root);
+    int create_at(const char *root, int replace);
+    int save_project(void);
+    int save_copy(const char *root, int replace);
+    int remove_metadata(void);
+    void clear_project(void);
+    int is_project(void);
+    int broken(void);
+    const char *root(void);
+    const char *name(void);
+    void set_name(const char *value);
+    const char *error(void);
+    TomlDoc *config(void);
+    TomlDoc *workspace(void);
+    int excluded(const char *rel, const char *name);
+    void set_exclude_text(const char *csv);
+    String *exclude_text(void);
+    void clear_files(void);
+    int add_file(const char *path, long line, long column);
+    long file_count(void);
+    const char *file_at(long index);
+    long file_line(long index);
+    long file_column(long index);
+    void clear_expanded(void);
+    int add_expanded(const char *rel);
+    long expanded_count(void);
+    const char *expanded_at(long index);
+    void set_layout(long width, long height, long side);
+    long window_width(void);
+    long window_height(void);
+    long side_width(void);
+    void set_active(const char *path);
+    const char *active(void);
+    int has_metadata(const char *root);
+private:
+    String *rootPath;
+    String *errorText;
+    TomlDoc *cfg;
+    TomlDoc *work;
+    String *cfgSnap;
+    String *workSnap;
+    int projectOn;
+    int bad;
+    void set_error(const char *msg);
+    int side_path(char *dest, const char *root);
+    int file_path(char *dest, const char *root, const char *leaf);
+    int read_meta(const char *root);
+    int write_one(
+            const char *path,
+            TomlDoc *doc,
+            String **snap,
+            int seen);
+    int store_path(const char *path, char *stored, long cap);
+};
+
+#endif

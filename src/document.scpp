@@ -1,40 +1,6 @@
-#ifndef IDE_DOCUMENT
-#define IDE_DOCUMENT
+#include "document.shpp"
 
-/* One open file. The buffer is the text the user edits.
- * loaded remembers the bytes last read or written so a
- * later disk check can see an outside change.
- */
-#include "buffer.scpp"
 
-class Document {
-public:
-    Document();
-    int load_path(const char *path);
-    int save_file(bool strip);
-    int save_as(const char *path, bool strip);
-    int reload_file(void);
-    int disk_differs(void);
-    const char *path(void);
-    int untitled(void);
-    const char *title(void);
-    const char *language(void);
-    EditBuffer *buffer(void);
-    const char *error(void);
-    void rename_untitled(void);
-private:
-    String *filePath;
-    String *titleText;
-    String *loaded;
-    String *lang;
-    String *errorText;
-    EditBuffer *body;
-    int isUntitled;
-    void set_error(const char *msg);
-    int take_bytes(const char *path, char *raw, long n);
-    void remember(void);
-    void apply_name(const char *path);
-};
 
 Document::Document() {
     filePath = new String();
@@ -214,5 +180,3 @@ int Document::disk_differs(void) {
 void Document::rename_untitled(void) {
     apply_name(nullptr);
 }
-
-#endif

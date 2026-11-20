@@ -1,0 +1,5 @@
+/* One translation unit for the language string methods.
+ * Other files include string.shpp and do not include
+ * <string>, <array>, or <vector>.
+ */
+#include <string>

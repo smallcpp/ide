@@ -1,143 +1,99 @@
-#ifndef IDE_BUFFER
-#define IDE_BUFFER
+#include "buffer.shpp"
 
-/* Editable text, undo, search, and the line commands.
- * Offsets are bytes. Lines and columns that cross the
- * GTK view are character positions, zero-based there
- * and one-based in move_to.
- */
-#include "util.scpp"
+MarkVec::MarkVec() : Array((long)sizeof(EditMark *)) {
+}
 
-class EditMark {
-public:
-    String *text;
-    long cursor;
-    long anchor;
-    bool dirty;
-    bool scopeOn;
-    long scopeStart;
-    long scopeEnd;
-};
+void MarkVec::add(EditMark * value) {
+    EditMark * *place;
+    reserve(count + 1);
+    place = (EditMark * *)(bytes + count * stride);
+    *place = value;
+    count = count + 1;
+}
 
-VECTOR(MarkVec, EditMark *)
+EditMark * MarkVec::at(long index) {
+    EditMark * *place;
+    if (index < 0)
+        index = count + index;
+    if (index < 0 || index >= count)
+        throw *new Exception("index");
+    place = (EditMark * *)address(index);
+    return *place;
+}
 
-class EditBuffer {
-public:
-    EditBuffer();
-    void set_text(const char *value);
-    const char *text(void);
-    long size(void);
-    bool dirty(void);
-    void mark_clean(void);
-    void mark_dirty(void);
-    long cursor_offset(void);
-    long anchor_offset(void);
-    void set_cursor_offset(long offset);
-    void select_all(void);
-    bool has_selection(void);
-    long sel_lo(void);
-    long sel_hi(void);
-    String *selected(void);
-    long line_count(void);
-    long cursor_line(void);
-    long cursor_column(void);
-    void line_column_at(
-            long offset,
-            long *line,
-            long *column);
-    long byte_at_line(long line, long column);
-    void move_to(long line, long column);
-    void select_span(
-            long line,
-            long column,
-            long line2,
-            long column2);
-    void insert_text(const char *value);
-    void backspace(void);
-    void delete_forward(void);
-    bool can_undo(void);
-    bool can_redo(void);
-    void undo(void);
-    void redo(void);
-    void strip_trailing(void);
-    void toggle_line_comment(const char *leader);
-    void toggle_block_comment(void);
-    void indent_lines(long width, bool spaces);
-    void outdent_lines(long width, bool spaces);
-    void insert_column(const char *value);
-    void delete_column(void);
-    int find_next(
-            const char *query,
-            bool matchCase,
-            bool whole,
-            bool inSel);
-    int replace_next(
-            const char *query,
-            const char *repl,
-            bool matchCase,
-            bool whole,
-            bool inSel);
-    int replace_all(
-            const char *query,
-            const char *repl,
-            bool matchCase,
-            bool whole,
-            bool inSel);
-    void capture_scope(void);
-    void clear_scope(void);
-    bool scope_active(void);
-    void set_auto_brackets(bool value);
-    void set_auto_indent(bool value);
-    bool auto_brackets(void);
-    bool auto_indent(void);
-    int note_external(const char *value);
-    bool selection_one_line(void);
-private:
-    String *body;
-    long cursor;
-    long anchor;
-    bool dirtyFlag;
-    bool scopeOn;
-    long scopeStart;
-    long scopeEnd;
-    bool hasMatch;
-    long matchStart;
-    long matchEnd;
-    bool brackets;
-    bool indentOn;
-    bool multi;
-    MarkVec *undoStack;
-    MarkVec *redoStack;
-    void assign(const char *value);
-    void clamp_point(void);
-    void push_undo(void);
-    void clear_marks(MarkVec *marks);
-    void restore(EditMark *mark);
-    void splice(long from, long to, const char *value);
-    void shift_scope(long at, long delta);
-    int match_at(
-            long index,
-            const char *query,
-            bool matchCase,
-            bool whole);
-    long find_from(
-            long from,
-            long limit,
-            const char *query,
-            bool matchCase,
-            bool whole);
-    void replace_span(long from, long to, const char *repl);
-    void finish_brackets(
-            long prefix,
-            long insLen,
-            long delLen,
-            const char *oldText,
-            long oldFrom,
-            long oldTo);
-    void line_range(long *first, long *last);
-    bool spans_lines(void);
-    int leading_indent(long lineStart, long *indentEnd);
-};
+long MarkVec::find(EditMark * value) {
+    EditMark * *place;
+    long i;
+    i = 0;
+    while (i < count) {
+        place = (EditMark * *)(bytes + i * stride);
+        if (*place == value)
+            return i;
+        i = i + 1;
+    }
+    return -1;
+}
+
+void MarkVec::replace(long index, EditMark * value) {
+    EditMark * *place;
+    if (index < 0)
+        index = count + index;
+    if (index < 0 || index >= count)
+        throw *new Exception("index");
+    place = (EditMark * *)address(index);
+    *place = value;
+}
+
+void MarkVec::insert(long index, EditMark * value) {
+    EditMark * *place;
+    long i;
+    if (index < 0)
+        index = count + index;
+    if (index < 0)
+        index = 0;
+    if (index > count)
+        index = count;
+    reserve(count + 1);
+    i = count;
+    while (i > index) {
+        place = (EditMark * *)(bytes + i * stride);
+        *place = *(EditMark * *)(bytes + (i - 1) * stride);
+        i = i - 1;
+    }
+    place = (EditMark * *)(bytes + index * stride);
+    *place = value;
+    count = count + 1;
+}
+
+void MarkVec::remove(long index) {
+    EditMark * *place;
+    long i;
+    if (index < 0)
+        index = count + index;
+    if (index < 0 || index >= count)
+        throw *new Exception("index");
+    i = index;
+    while (i + 1 < count) {
+        place = (EditMark * *)(bytes + i * stride);
+        *place = *(EditMark * *)(bytes + (i + 1) * stride);
+        i = i + 1;
+    }
+    count = count - 1;
+}
+
+EditMark * MarkVec::next(long *cursor) {
+    long index;
+    if (cursor == nullptr)
+        throw *new Exception("index");
+    index = *cursor;
+    if (index < 0)
+        index = count + index;
+    if (index < 0 || index >= count)
+        throw *new Exception("index");
+    *cursor = index + 1;
+    return at(index);
+}
+
 
 EditBuffer::EditBuffer() {
     body = new String();
@@ -1519,5 +1475,3 @@ int EditBuffer::note_external(const char *value) {
         extra = 1;
     return extra;
 }
-
-#endif

@@ -1,63 +1,6 @@
-#ifndef IDE_SETTINGS
-#define IDE_SETTINGS
+#include "settings.shpp"
 
-/* User settings and the keyboard map. Missing keys use
- * the built-in defaults. A bad file keeps the valid keys
- * and turns automatic saving off.
- */
-#include "toml.scpp"
 
-enum {
-    IDE_COMMANDS = 43
-};
-
-class Settings {
-public:
-    Settings();
-    void reset_defaults(void);
-    int load_text(const char *text);
-    String *save_text(void);
-    int load_file(const char *path);
-    int save_file(const char *path);
-    int failed(void);
-    int autosave(void);
-    const char *error(void);
-    void set_string(const char *key, const char *value);
-    void set_number(const char *key, long value);
-    void set_flag(const char *key, bool value);
-    const char *get_string(const char *key);
-    long get_number(const char *key);
-    bool get_flag(const char *key);
-    const char *effective_string(
-            const char *key,
-            TomlDoc *project);
-    long effective_number(const char *key, TomlDoc *project);
-    bool effective_flag(const char *key, TomlDoc *project);
-    int set_binding(const char *command, const char *trigger);
-    const char *binding(const char *command);
-    void reset_binding(const char *command);
-    void reset_bindings(void);
-    int import_legacy(const char *text);
-    int command_known(const char *command);
-    const char *command_at(long index);
-    long command_count(void);
-    const char *default_binding(const char *command);
-    int canon_trigger(const char *input, char *dest, long cap);
-    TomlDoc *doc(void);
-private:
-    TomlDoc *file;
-    String *snapshot;
-    int sawFile;
-    int bad;
-    int allowSave;
-    String *errorText;
-    void note(const char *msg);
-    void overlay_defaults(void);
-    int valid_editor(void);
-    int valid_keyboard(void);
-    const char *editor_default(const char *key);
-    int known_editor(const char *key);
-};
 
 const char *ide_command(long index) {
     if (index == 0)
@@ -885,5 +828,3 @@ int Settings::save_file(const char *path) {
     sawFile = 1;
     return 1;
 }
-
-#endif

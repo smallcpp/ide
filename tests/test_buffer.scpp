@@ -1,4 +1,4 @@
-#include "../src/buffer.scpp"
+#include "../src/buffer.shpp"
 
 static int failures;
 

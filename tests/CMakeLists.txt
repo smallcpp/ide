@@ -12,17 +12,16 @@ set(IDE_TESTS
 foreach(name ${IDE_TESTS})
     set(source "${CMAKE_CURRENT_SOURCE_DIR}/test_${name}.scpp")
     set(program "${CMAKE_SOURCE_DIR}/bin/test-${name}")
-    set(extra_libs "")
-    if(name STREQUAL "lsp" OR name STREQUAL "session")
-        set(extra_libs -l pthread)
-    endif()
+    set(link_dir "${CMAKE_BINARY_DIR}/link-test-${name}")
     add_custom_command(
         OUTPUT "${program}"
         COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_SOURCE_DIR}/bin"
-        COMMAND "${SCPP}" ${SCPP_FLAGS} -o "${program}"
-                "${source}" ${extra_libs}
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${link_dir}"
+        COMMAND "${CMAKE_COMMAND}" -E chdir "${link_dir}"
+                "${SCPP}" ${SCPP_FLAGS} -o "${program}"
+                "${source}" ${IDE_LIB_SOURCES} -l pthread
         WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
-        DEPENDS "${source}" ${IDE_UNITS} "${SCPP}"
+        DEPENDS "${source}" ${IDE_LIB_SOURCES} ${IDE_HEADERS} "${SCPP}"
         COMMENT "Compiling tests/test_${name}.scpp"
         VERBATIM)
     add_custom_target(test-${name} DEPENDS "${program}")

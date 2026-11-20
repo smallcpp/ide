@@ -1,0 +1,35 @@
+#ifndef IDE_TOML
+#define IDE_TOML
+
+/* A TOML subset: sections, scalars, string arrays, and
+ * arrays of inline tables. Comments and unknown keys are
+ * kept as keys. Comments themselves are not kept.
+ */
+#include "util.shpp"
+
+class TomlDoc {
+public:
+    TomlDoc();
+    int parse(const char *text);
+    String *write_text(void);
+    int ok(void);
+    const char *error(void);
+    void set_error(const char *msg);
+    int has(const char *key);
+    const char *get(const char *key);
+    void set(const char *key, const char *value);
+    void remove_key(const char *key);
+    long count(void);
+    const char *key_at(long index);
+private:
+    StringVec *keys;
+    StringVec *vals;
+    int failed;
+    String *errorText;
+    long find_key(const char *key);
+    void write_scalar(String *out, const char *value);
+    void write_array(String *out, const char *section, const char *name);
+    int array_table(const char *prefix);
+};
+
+#endif
