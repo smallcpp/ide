@@ -1,0 +1,71 @@
+#ifndef IDE_EXPLORER
+#define IDE_EXPLORER
+
+/* A depth-first listing of one folder. Only expanded
+ * directories are read. Symlinks are leaves.
+ */
+#include "project.shpp"
+#include <dirent>
+
+enum {
+    ENTRY_DIR = 1,
+    ENTRY_FILE = 2,
+    ENTRY_LINK = 3,
+    ENTRY_OTHER = 4,
+    ENTRY_NOTE = 5
+};
+
+class ExplorerEntry {
+public:
+    String *label;
+    String *full;
+    String *rel;
+    int kind;
+    int depth;
+    int open;
+};
+
+class EntryVec : public Array {
+public:
+    EntryVec();
+    void add(ExplorerEntry * value);
+    ExplorerEntry * at(long index);
+    long find(ExplorerEntry * value);
+    void replace(long index, ExplorerEntry * value);
+    void insert(long index, ExplorerEntry * value);
+    void remove(long index);
+    ExplorerEntry * next(long *cursor);
+};
+
+class Explorer {
+public:
+    Explorer();
+    void set_root(const char *path);
+    void set_hidden(bool value);
+    bool hidden(void);
+    void use_project(Project *project);
+    void refresh(void);
+    void toggle(long index);
+    long count(void);
+    ExplorerEntry *at(long index);
+    const char *error(void);
+    void pin(const char *path);
+    int expanded(const char *rel);
+private:
+    String *rootPath;
+    String *errorText;
+    EntryVec *rows;
+    StringVec *openRels;
+    StringVec *pins;
+    Project *bound;
+    bool showHidden;
+    void add_note(const char *text, int depth);
+    int want_open(const char *rel);
+    void list_into(
+            const char *dir,
+            const char *rel,
+            int depth);
+    int before(ExplorerEntry *left, ExplorerEntry *right);
+};
+
+#endif

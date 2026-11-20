@@ -1,28 +1,6 @@
-#ifndef IDE_UTIL
-#define IDE_UTIL
+#include "util.shpp"
 
-/* Shared text, path, and file helpers for the editor.
- * A returned const char * from a String is valid until
- * that String changes. Callers copy anything they keep.
- */
-#include <errno>
-#include <fcntl>
-#include <stat>
-#include <stdio>
-#include <stdlib>
-#include <string>
-#include <time>
-#include <unistd>
 
-enum {
-    IDE_PATH = 4096,
-    IDE_FILE_MAX = 33554432
-};
-
-enum {
-    IDE_ISLNK_MODE = 40960,
-    IDE_MODE_MASK = 61440
-};
 
 long text_length(const char *text) {
     long n;
@@ -741,5 +719,3 @@ int pattern_ok(const char *pat) {
     }
     return 1;
 }
-
-#endif

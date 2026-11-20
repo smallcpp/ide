@@ -1,62 +1,99 @@
-#ifndef IDE_EXPLORER
-#define IDE_EXPLORER
+#include "explorer.shpp"
 
-/* A depth-first listing of one folder. Only expanded
- * directories are read. Symlinks are leaves.
- */
-#include "project.scpp"
-#include <dirent>
+EntryVec::EntryVec() : Array((long)sizeof(ExplorerEntry *)) {
+}
 
-enum {
-    ENTRY_DIR = 1,
-    ENTRY_FILE = 2,
-    ENTRY_LINK = 3,
-    ENTRY_OTHER = 4,
-    ENTRY_NOTE = 5
-};
+void EntryVec::add(ExplorerEntry * value) {
+    ExplorerEntry * *place;
+    reserve(count + 1);
+    place = (ExplorerEntry * *)(bytes + count * stride);
+    *place = value;
+    count = count + 1;
+}
 
-class ExplorerEntry {
-public:
-    String *label;
-    String *full;
-    String *rel;
-    int kind;
-    int depth;
-    int open;
-};
+ExplorerEntry * EntryVec::at(long index) {
+    ExplorerEntry * *place;
+    if (index < 0)
+        index = count + index;
+    if (index < 0 || index >= count)
+        throw *new Exception("index");
+    place = (ExplorerEntry * *)address(index);
+    return *place;
+}
 
-VECTOR(EntryVec, ExplorerEntry *)
+long EntryVec::find(ExplorerEntry * value) {
+    ExplorerEntry * *place;
+    long i;
+    i = 0;
+    while (i < count) {
+        place = (ExplorerEntry * *)(bytes + i * stride);
+        if (*place == value)
+            return i;
+        i = i + 1;
+    }
+    return -1;
+}
 
-class Explorer {
-public:
-    Explorer();
-    void set_root(const char *path);
-    void set_hidden(bool value);
-    bool hidden(void);
-    void use_project(Project *project);
-    void refresh(void);
-    void toggle(long index);
-    long count(void);
-    ExplorerEntry *at(long index);
-    const char *error(void);
-    void pin(const char *path);
-    int expanded(const char *rel);
-private:
-    String *rootPath;
-    String *errorText;
-    EntryVec *rows;
-    StringVec *openRels;
-    StringVec *pins;
-    Project *bound;
-    bool showHidden;
-    void add_note(const char *text, int depth);
-    int want_open(const char *rel);
-    void list_into(
-            const char *dir,
-            const char *rel,
-            int depth);
-    int before(ExplorerEntry *left, ExplorerEntry *right);
-};
+void EntryVec::replace(long index, ExplorerEntry * value) {
+    ExplorerEntry * *place;
+    if (index < 0)
+        index = count + index;
+    if (index < 0 || index >= count)
+        throw *new Exception("index");
+    place = (ExplorerEntry * *)address(index);
+    *place = value;
+}
+
+void EntryVec::insert(long index, ExplorerEntry * value) {
+    ExplorerEntry * *place;
+    long i;
+    if (index < 0)
+        index = count + index;
+    if (index < 0)
+        index = 0;
+    if (index > count)
+        index = count;
+    reserve(count + 1);
+    i = count;
+    while (i > index) {
+        place = (ExplorerEntry * *)(bytes + i * stride);
+        *place = *(ExplorerEntry * *)(bytes + (i - 1) * stride);
+        i = i - 1;
+    }
+    place = (ExplorerEntry * *)(bytes + index * stride);
+    *place = value;
+    count = count + 1;
+}
+
+void EntryVec::remove(long index) {
+    ExplorerEntry * *place;
+    long i;
+    if (index < 0)
+        index = count + index;
+    if (index < 0 || index >= count)
+        throw *new Exception("index");
+    i = index;
+    while (i + 1 < count) {
+        place = (ExplorerEntry * *)(bytes + i * stride);
+        *place = *(ExplorerEntry * *)(bytes + (i + 1) * stride);
+        i = i + 1;
+    }
+    count = count - 1;
+}
+
+ExplorerEntry * EntryVec::next(long *cursor) {
+    long index;
+    if (cursor == nullptr)
+        throw *new Exception("index");
+    index = *cursor;
+    if (index < 0)
+        index = count + index;
+    if (index < 0 || index >= count)
+        throw *new Exception("index");
+    *cursor = index + 1;
+    return at(index);
+}
+
 
 Explorer::Explorer() {
     rootPath = new String();
@@ -338,5 +375,3 @@ void Explorer::toggle(long index) {
     }
     refresh();
 }
-
-#endif

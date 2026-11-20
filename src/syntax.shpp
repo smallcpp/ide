@@ -1,0 +1,48 @@
+#ifndef IDE_SYNTAX
+#define IDE_SYNTAX
+
+/* A small scanner for the languages the editor highlights.
+ * Spans are byte offsets. Plain text produces none.
+ */
+#include "util.shpp"
+
+enum {
+    SPAN_KEYWORD = 1,
+    SPAN_STRING = 2,
+    SPAN_COMMENT = 3,
+    SPAN_NUMBER = 4
+};
+
+class Span {
+public:
+    long start;
+    long end;
+    int kind;
+};
+
+class SpanVec : public Array {
+public:
+    SpanVec();
+    void add(Span * value);
+    Span * at(long index);
+    long find(Span * value);
+    void replace(long index, Span * value);
+    void insert(long index, Span * value);
+    void remove(long index);
+    Span * next(long *cursor);
+};
+
+class Highlighter {
+public:
+    Highlighter();
+    void scan(const char *text, const char *language);
+    long count(void);
+    Span *at(long index);
+private:
+    SpanVec *spans;
+    void add_span(long start, long end, int kind);
+    int is_word(const char *raw, long n, long at, const char *word);
+    int keyword(const char *language, const char *word);
+};
+
+#endif

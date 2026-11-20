@@ -1,4 +1,4 @@
-#include "../src/syntax.scpp"
+#include "../src/syntax.shpp"
 
 static int failures;
 

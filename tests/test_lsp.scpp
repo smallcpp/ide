@@ -1,4 +1,4 @@
-#include "../src/lsp.scpp"
+#include "../src/lsp.shpp"
 
 static int failures;
 

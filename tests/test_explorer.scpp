@@ -1,4 +1,4 @@
-#include "../src/explorer.scpp"
+#include "../src/explorer.shpp"
 
 static int failures;
 

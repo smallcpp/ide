@@ -1,39 +1,99 @@
-#ifndef IDE_SYNTAX
-#define IDE_SYNTAX
+#include "syntax.shpp"
 
-/* A small scanner for the languages the editor highlights.
- * Spans are byte offsets. Plain text produces none.
- */
-#include "util.scpp"
+SpanVec::SpanVec() : Array((long)sizeof(Span *)) {
+}
 
-enum {
-    SPAN_KEYWORD = 1,
-    SPAN_STRING = 2,
-    SPAN_COMMENT = 3,
-    SPAN_NUMBER = 4
-};
+void SpanVec::add(Span * value) {
+    Span * *place;
+    reserve(count + 1);
+    place = (Span * *)(bytes + count * stride);
+    *place = value;
+    count = count + 1;
+}
 
-class Span {
-public:
-    long start;
-    long end;
-    int kind;
-};
+Span * SpanVec::at(long index) {
+    Span * *place;
+    if (index < 0)
+        index = count + index;
+    if (index < 0 || index >= count)
+        throw *new Exception("index");
+    place = (Span * *)address(index);
+    return *place;
+}
 
-VECTOR(SpanVec, Span *)
+long SpanVec::find(Span * value) {
+    Span * *place;
+    long i;
+    i = 0;
+    while (i < count) {
+        place = (Span * *)(bytes + i * stride);
+        if (*place == value)
+            return i;
+        i = i + 1;
+    }
+    return -1;
+}
 
-class Highlighter {
-public:
-    Highlighter();
-    void scan(const char *text, const char *language);
-    long count(void);
-    Span *at(long index);
-private:
-    SpanVec *spans;
-    void add_span(long start, long end, int kind);
-    int is_word(const char *raw, long n, long at, const char *word);
-    int keyword(const char *language, const char *word);
-};
+void SpanVec::replace(long index, Span * value) {
+    Span * *place;
+    if (index < 0)
+        index = count + index;
+    if (index < 0 || index >= count)
+        throw *new Exception("index");
+    place = (Span * *)address(index);
+    *place = value;
+}
+
+void SpanVec::insert(long index, Span * value) {
+    Span * *place;
+    long i;
+    if (index < 0)
+        index = count + index;
+    if (index < 0)
+        index = 0;
+    if (index > count)
+        index = count;
+    reserve(count + 1);
+    i = count;
+    while (i > index) {
+        place = (Span * *)(bytes + i * stride);
+        *place = *(Span * *)(bytes + (i - 1) * stride);
+        i = i - 1;
+    }
+    place = (Span * *)(bytes + index * stride);
+    *place = value;
+    count = count + 1;
+}
+
+void SpanVec::remove(long index) {
+    Span * *place;
+    long i;
+    if (index < 0)
+        index = count + index;
+    if (index < 0 || index >= count)
+        throw *new Exception("index");
+    i = index;
+    while (i + 1 < count) {
+        place = (Span * *)(bytes + i * stride);
+        *place = *(Span * *)(bytes + (i + 1) * stride);
+        i = i + 1;
+    }
+    count = count - 1;
+}
+
+Span * SpanVec::next(long *cursor) {
+    long index;
+    if (cursor == nullptr)
+        throw *new Exception("index");
+    index = *cursor;
+    if (index < 0)
+        index = count + index;
+    if (index < 0 || index >= count)
+        throw *new Exception("index");
+    *cursor = index + 1;
+    return at(index);
+}
+
 
 Highlighter::Highlighter() {
     spans = new SpanVec();
@@ -244,5 +304,3 @@ void Highlighter::scan(const char *text, const char *language) {
         i = i + 1;
     }
 }
-
-#endif

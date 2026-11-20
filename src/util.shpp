@@ -1,0 +1,73 @@
+#ifndef IDE_UTIL
+#define IDE_UTIL
+
+/* Shared text, path, and file helpers for the editor.
+ * A returned const char * from a String is valid until
+ * that String changes. Callers copy anything they keep.
+ */
+#include <errno>
+#include <fcntl>
+#include <stat>
+#include <stdio>
+#include <stdlib>
+#include "string.shpp"
+#include <time>
+#include <unistd>
+
+enum {
+    IDE_PATH = 4096,
+    IDE_FILE_MAX = 33554432
+};
+
+enum {
+    IDE_ISLNK_MODE = 40960,
+    IDE_MODE_MASK = 61440
+};
+
+long text_length(const char *text);
+int text_same(const char *left, const char *right);
+int text_starts(const char *text, const char *prefix);
+void text_copy(char *dest, long cap, const char *src);
+int text_has(const char *text, const char *needle);
+int byte_at(const char *text, long index);
+int utf8_len(int value);
+int bytes_have_nul(const char *text, long n);
+int utf8_ok(const char *text, long n);
+int is_ident(int value);
+int ascii_lower(int value);
+void append_range(
+        String *dest,
+        const char *src,
+        long from,
+        long to);
+String *slice_text(const char *src, long from, long to);
+int path_is_abs(const char *path);
+int path_has_scheme(const char *path);
+void path_join(
+        char *dest,
+        long cap,
+        const char *dir,
+        const char *name);
+const char *path_base(const char *path);
+void path_dir(char *dest, long cap, const char *path);
+int path_normalize(char *dest, long cap, const char *path);
+int file_is_dir(const char *path);
+int file_is_reg(const char *path);
+int file_is_link(const char *path);
+int file_exists(const char *path);
+int ensure_dir(const char *path);
+char *read_file(
+        const char *path,
+        long *size,
+        const char **error);
+int write_file(
+        const char *path,
+        const char *text,
+        const char **error);
+void format_clock(char *dest, long cap, long seconds);
+const char *comment_leader(const char *language);
+const char *language_of(const char *path);
+int glob_match(const char *pat, const char *text);
+int pattern_ok(const char *pat);
+
+#endif

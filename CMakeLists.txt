@@ -48,22 +48,42 @@ if(NOT SCPP)
         "Install smallcpp and run scripts/setup again.")
 endif()
 
-set(IDE_SOURCE "${CMAKE_SOURCE_DIR}/src/ide.scpp")
 set(IDE_PROGRAM "${CMAKE_SOURCE_DIR}/bin/ide")
 
-set(IDE_UNITS
-    "${CMAKE_SOURCE_DIR}/src/ide.scpp"
-    "${CMAKE_SOURCE_DIR}/src/ui.scpp"
-    "${CMAKE_SOURCE_DIR}/src/session.scpp"
-    "${CMAKE_SOURCE_DIR}/src/lsp.scpp"
-    "${CMAKE_SOURCE_DIR}/src/explorer.scpp"
-    "${CMAKE_SOURCE_DIR}/src/project.scpp"
-    "${CMAKE_SOURCE_DIR}/src/settings.scpp"
-    "${CMAKE_SOURCE_DIR}/src/document.scpp"
+# Class definitions live in the headers. Each .scpp is one
+# translation unit. string.scpp is the only unit that includes
+# the language <string> header, which defines its methods.
+set(IDE_LIB_SOURCES
+    "${CMAKE_SOURCE_DIR}/src/string.scpp"
+    "${CMAKE_SOURCE_DIR}/src/util.scpp"
+    "${CMAKE_SOURCE_DIR}/src/buffer.scpp"
     "${CMAKE_SOURCE_DIR}/src/syntax.scpp"
     "${CMAKE_SOURCE_DIR}/src/toml.scpp"
-    "${CMAKE_SOURCE_DIR}/src/buffer.scpp"
-    "${CMAKE_SOURCE_DIR}/src/util.scpp")
+    "${CMAKE_SOURCE_DIR}/src/settings.scpp"
+    "${CMAKE_SOURCE_DIR}/src/project.scpp"
+    "${CMAKE_SOURCE_DIR}/src/explorer.scpp"
+    "${CMAKE_SOURCE_DIR}/src/document.scpp"
+    "${CMAKE_SOURCE_DIR}/src/lsp.scpp"
+    "${CMAKE_SOURCE_DIR}/src/session.scpp")
+
+set(IDE_SOURCES
+    ${IDE_LIB_SOURCES}
+    "${CMAKE_SOURCE_DIR}/src/ui.scpp"
+    "${CMAKE_SOURCE_DIR}/src/ide.scpp")
+
+set(IDE_HEADERS
+    "${CMAKE_SOURCE_DIR}/src/string.shpp"
+    "${CMAKE_SOURCE_DIR}/src/util.shpp"
+    "${CMAKE_SOURCE_DIR}/src/buffer.shpp"
+    "${CMAKE_SOURCE_DIR}/src/syntax.shpp"
+    "${CMAKE_SOURCE_DIR}/src/toml.shpp"
+    "${CMAKE_SOURCE_DIR}/src/settings.shpp"
+    "${CMAKE_SOURCE_DIR}/src/project.shpp"
+    "${CMAKE_SOURCE_DIR}/src/explorer.shpp"
+    "${CMAKE_SOURCE_DIR}/src/document.shpp"
+    "${CMAKE_SOURCE_DIR}/src/lsp.shpp"
+    "${CMAKE_SOURCE_DIR}/src/session.shpp"
+    "${CMAKE_SOURCE_DIR}/src/ui.shpp")
 
 set(SCPP_FLAGS "")
 if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
@@ -81,14 +101,17 @@ set(IDE_LIBS
     -l cairo
     -l pthread)
 
+set(IDE_LINK_DIR "${CMAKE_BINARY_DIR}/link-ide")
 add_custom_command(
     OUTPUT "${IDE_PROGRAM}"
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_SOURCE_DIR}/bin"
-    COMMAND "${SCPP}" ${SCPP_FLAGS} -o "${IDE_PROGRAM}"
-            "${IDE_SOURCE}" ${IDE_LIBS}
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${IDE_LINK_DIR}"
+    COMMAND "${CMAKE_COMMAND}" -E chdir "${IDE_LINK_DIR}"
+            "${SCPP}" ${SCPP_FLAGS} -o "${IDE_PROGRAM}"
+            ${IDE_SOURCES} ${IDE_LIBS}
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
-    DEPENDS ${IDE_UNITS} "${SCPP}"
-    COMMENT "Compiling src/ide.scpp"
+    DEPENDS ${IDE_SOURCES} ${IDE_HEADERS} "${SCPP}"
+    COMMENT "Compiling ide"
     VERBATIM)
 add_custom_target(ide ALL DEPENDS "${IDE_PROGRAM}")
 
