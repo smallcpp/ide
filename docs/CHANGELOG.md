@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+Class definitions live in `.shpp` headers. Method bodies written
+outside the class are in `.scpp` files that `build` compiles and
+links. No file includes a `.scpp`.
+
 Startup was slow because the collector runs on every allocation and
 scans every word of every live object. The LSP frame buffer and the
 diagnostic table were collected objects, so each widget built after
