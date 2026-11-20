@@ -69,5 +69,11 @@ const char *comment_leader(const char *language);
 const char *language_of(const char *path);
 int glob_match(const char *pat, const char *text);
 int pattern_ok(const char *pat);
+int error_match(
+        const char *pattern,
+        const char *line,
+        char *path,
+        long pathCap,
+        long *lineNo);
 
 #endif

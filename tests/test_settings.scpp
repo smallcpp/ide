@@ -59,6 +59,34 @@ int main(void) {
             "override");
     expect(settings->get_number("editor.tab_width") == 4,
             "user stays");
+    expect(settings->command_known("build-compile") == 1,
+            "build id");
+    expect(settings->command_known("focus-messages") == 1,
+            "focus id");
+    expect(settings->command_count() == 48, "command count");
+    expect(text_same(
+                    settings->get_string("build.compile_label"),
+                    "Compile") == 1,
+            "compile label");
+    expect(text_same(
+                    settings->get_string("build.error_regex"),
+                    "%p:%l:") == 1,
+            "regex");
+    expect(text_same(
+                    settings->get_string("build.compile_command"),
+                    "") == 1,
+            "empty command");
+    project->set("build.compile_command", "echo project");
+    expect(text_same(
+                    settings->effective_string(
+                            "build.compile_command",
+                            project),
+                    "echo project") == 1,
+            "project command");
+    expect(text_same(
+                    settings->get_string("build.compile_command"),
+                    "") == 1,
+            "user command stays");
     text_copy(pattern, 64, "/tmp/ide-set-XXXXXX");
     dir = mkdtemp(pattern);
     expect(dir != nullptr, "temp");

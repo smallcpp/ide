@@ -719,3 +719,172 @@ int pattern_ok(const char *pat) {
     }
     return 1;
 }
+
+int ide_match_at(
+        const char *pat,
+        long pi,
+        const char *text,
+        long ti,
+        char *path,
+        long pathCap,
+        long *lineNo) {
+    int ch;
+    long take;
+    long value;
+    long n;
+    long k;
+
+    if (pat[pi] == 0)
+        return 1;
+    if (pat[pi] == '%') {
+        ch = byte_at(pat, pi + 1);
+        if (ch == '%') {
+            if (byte_at(text, ti) != '%')
+                return 0;
+            return ide_match_at(
+                    pat,
+                    pi + 2,
+                    text,
+                    ti + 1,
+                    path,
+                    pathCap,
+                    lineNo);
+        }
+        if (ch == 'l' || ch == 'c') {
+            if (byte_at(text, ti) < '0' || byte_at(text, ti) > '9')
+                return 0;
+            value = 0;
+            n = ti;
+            while (byte_at(text, n) >= '0'
+                    && byte_at(text, n) <= '9') {
+                value = value * 10 + (byte_at(text, n) - '0');
+                n = n + 1;
+                if (value > 10000000)
+                    return 0;
+            }
+            if (ch == 'l' && lineNo != nullptr)
+                *lineNo = value;
+            return ide_match_at(
+                    pat,
+                    pi + 2,
+                    text,
+                    n,
+                    path,
+                    pathCap,
+                    lineNo);
+        }
+        if (ch == 'p') {
+            take = 1;
+            while (take < pathCap) {
+                ch = byte_at(text, ti + take - 1);
+                if (ch == 0 || ch == ':' || ch == '\n')
+                    break;
+                if (ide_match_at(
+                            pat,
+                            pi + 2,
+                            text,
+                            ti + take,
+                            path,
+                            pathCap,
+                            lineNo) == 1) {
+                    k = 0;
+                    while (k < take) {
+                        path[k] = (char)byte_at(text, ti + k);
+                        k = k + 1;
+                    }
+                    path[take] = 0;
+                    return 1;
+                }
+                take = take + 1;
+            }
+            return 0;
+        }
+        if (ch == '*') {
+            take = 0;
+            while (take < 2000) {
+                if (ide_match_at(
+                            pat,
+                            pi + 2,
+                            text,
+                            ti + take,
+                            path,
+                            pathCap,
+                            lineNo) == 1)
+                    return 1;
+                if (byte_at(text, ti + take) == 0
+                        || byte_at(text, ti + take) == '\n')
+                    return 0;
+                take = take + 1;
+            }
+            return 0;
+        }
+        return 0;
+    }
+    if (byte_at(text, ti) != byte_at(pat, pi))
+        return 0;
+    return ide_match_at(
+            pat,
+            pi + 1,
+            text,
+            ti + 1,
+            path,
+            pathCap,
+            lineNo);
+}
+
+int error_match(
+        const char *pattern,
+        const char *line,
+        char *path,
+        long pathCap,
+        long *lineNo) {
+    long i;
+    long number;
+
+    if (pattern == nullptr || pattern[0] == 0)
+        return 0;
+    if (line == nullptr || path == nullptr || pathCap < 2)
+        return 0;
+    if (lineNo == nullptr)
+        return 0;
+    i = 0;
+    while (line[i] != 0) {
+        path[0] = 0;
+        number = 0;
+        if (ide_match_at(
+                    pattern,
+                    0,
+                    line,
+                    i,
+                    path,
+                    pathCap,
+                    &number) == 1
+                && number > 0) {
+            long from;
+            long to;
+            long k;
+
+            from = 0;
+            while (path[from] == ' ' || path[from] == '\t')
+                from = from + 1;
+            to = text_length(path);
+            while (to > from
+                    && (path[to - 1] == ' '
+                            || path[to - 1] == '\t'))
+                to = to - 1;
+            k = 0;
+            while (from < to) {
+                path[k] = path[from];
+                k = k + 1;
+                from = from + 1;
+            }
+            path[k] = 0;
+            if (path[0] != 0) {
+                *lineNo = number;
+                return 1;
+            }
+        }
+        i = i + 1;
+    }
+    return 0;
+}

@@ -36,6 +36,10 @@ int main(void) {
     expect(project->create_at(dir, 0) == 2, "needs replace");
     project->set_name("Demo");
     project->set_exclude_text("build, *.log");
+    project->config()->set("build.compile_label", "Make");
+    project->config()->set("build.compile_command", "make");
+    project->config()->set("build.compile_directory", "src");
+    project->config()->set("build.error_regex", "%p:%l:");
     path_join(path, IDE_PATH, dir, "src");
     expect(ensure_dir(path) == 1, "src dir");
     path_join(path, IDE_PATH, path, "a.scpp");
@@ -56,6 +60,23 @@ int main(void) {
     expect(project->file_line(0) == 2, "line");
     expect(project->expanded_count() == 1, "one folder");
     expect(project->window_width() == 800, "width");
+    expect(text_same(
+                    project->config()->get("build.compile_command"),
+                    "make") == 1,
+            "build command");
+    expect(text_same(
+                    project->config()->get("build.compile_label"),
+                    "Make") == 1,
+            "build label");
+    expect(text_same(
+                    project->config()->get(
+                            "build.compile_directory"),
+                    "src") == 1,
+            "build directory");
+    expect(text_same(
+                    project->config()->get("build.error_regex"),
+                    "%p:%l:") == 1,
+            "build regex");
     text_copy(other, 64, "/tmp/ide-copy-XXXXXX");
     copy = mkdtemp(other);
     path_join(path, IDE_PATH, copy, "src");

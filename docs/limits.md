@@ -55,8 +55,9 @@ expected-content check, not GIO etags. A second process with the same
 application id is delivered to the first by GTK and does not receive
 the new file list.
 
-The editor does not add build commands, Git, project trust, a
-configurable toolbar, or dynamic plugins. cedit does not provide
-those either. The about window names version 0.0.1 and the smallcpp
-repositories. This repository ships no license file, so the about
-text does not claim one.
+Build commands are three stored entries. There is no Makefile
+parser, no target list, and no second language client. Git, project
+trust, a configurable toolbar, a dynamic plugin loader, and a
+terminal are absent. The about window names version 0.0.1 and the
+smallcpp repositories. This repository ships no license file, so
+the about text does not claim one.

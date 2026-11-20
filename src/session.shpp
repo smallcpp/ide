@@ -16,7 +16,10 @@ enum {
     IDE_NEEDS_PATH = 4,
     IDE_CHOOSE_OPEN = 5,
     IDE_CHOOSE_SAVE = 6,
-    IDE_CHOOSE_FOLDER = 7
+    IDE_CHOOSE_FOLDER = 7,
+    IDE_CHOOSE_NEW_PROJECT = 8,
+    IDE_CHOOSE_OPEN_PROJECT = 9,
+    IDE_CHOOSE_SAVE_PROJECT = 10
 };
 
 enum {
@@ -133,6 +136,17 @@ public:
     const char *hit_path(long index);
     long hit_line(long index);
     const char *hit_text(long index);
+    const char *build_label(long slot);
+    const char *build_command(long slot);
+    const char *build_directory(long slot);
+    const char *build_regex(void);
+    long build_count(void);
+    const char *build_path(long index);
+    long build_line(long index);
+    const char *build_text(long index);
+    const char *build_output(void);
+    int message_page(void);
+    int take_message_jump(void);
     int snapshot_recovery(void);
     int recovery_pending(void);
     const char *recovery_path(void);
@@ -154,6 +168,9 @@ public:
     int reopen_or_new(void);
     int show_preferences(void);
     int show_about(void);
+    int show_find(void);
+    int show_goto(void);
+    int show_configure(void);
     int chooser(void);
 private:
     DocVec *docs;
@@ -163,6 +180,8 @@ private:
     Explorer *tree;
     LspClient *client;
     HitVec *hits;
+    HitVec *buildHits;
+    String *buildOutput;
     String *recent[20];
     long recentN;
     String *queryText;
@@ -184,6 +203,11 @@ private:
     int openedArgs;
     int prefsOpen;
     int aboutOpen;
+    int findOpen;
+    int gotoOpen;
+    int configureOpen;
+    int messagePage;
+    int messageJump;
     int choose;
     bool matchCase;
     bool wholeWord;
@@ -214,6 +238,14 @@ private:
             int depth);
     int save_named(Document *doc);
     void poll_command_views(const char *command);
+    const char *build_value(long slot, const char *leaf);
+    int run_build(long slot);
+    void parse_build(const char *text, const char *dir);
+    int capture_command(
+            const char *dir,
+            const char *command,
+            String *out,
+            int *status);
 };
 
 void ide_write_help(void);

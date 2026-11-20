@@ -37,14 +37,17 @@ Files larger than 32 MiB are refused.
 
 ## Window
 
-The window has File, Edit, View, Project, and Help menus, a sidebar,
-document tabs, and a status line. The status line shows the title, a
+The window has File, Edit, Search, View, Project, Build, and Help
+menus, a sidebar, document tabs, a bottom message notebook, and a
+status line. Each menu row starts with a command id. A tab, the
+label, and the stored shortcut follow. Choosing a row calls
+`Session::run` with that id. The status line shows the title, a
 dirty star, the line, the column, the language, and a diagnostic
 count when the language client has reported any.
 
 File covers New, Open, Save, Save As, Save All, Reload, Close, Close
-All, Open Folder, the recent list, and Quit. Recent paths are listed
-in the File menu as `Recent: path`, most recent first, up to 20.
+All, Open Folder, the recent list, and Quit. A recent row uses the
+id `recent` and then the path, most recent first, up to 20.
 Opening a path that is already open focuses that tab. The last tab,
 when closed, is replaced by a fresh `untitled.scpp` buffer. Only Quit
 and the window close button leave the program. A dirty tab asks
@@ -53,20 +56,55 @@ As refuses a path that belongs to another open document, and it asks
 before replacing a file that already exists. Save All writes modified
 named documents and skips untitled ones.
 
-Edit covers undo, redo, the editor clipboard, find and replace, go to
-line, comments, indent, column edit, and two built-in plugins. Find
-supports case, whole words, and in-selection search, and it wraps
-once. Replace All is one undo step. Go to line accepts a line or
-`line:column`. Comment toggles a line comment. Block comment is
-menu-only. Insert Date writes the UTC clock time. Toggle Debug
-inserts or removes `// DEBUG` at the start of the current line.
+Edit covers undo, redo, the editor clipboard, comments, indent,
+column edit, and two built-in plugins. Comment toggles a line
+comment. Block comment is menu-only. Insert Date writes the UTC
+clock time. Toggle Debug inserts or removes `// DEBUG` at the start
+of the current line.
+
+Search covers Find, Replace, Find in Project, Go to Line, and Focus
+Search. Find supports case, whole words, and in-selection search,
+and it wraps once. Replace All is one undo step. Go to line accepts
+a line or `line:column`. Find in Project runs `find-project` and
+lists path, line, and text on the Search page. Activating a row
+opens that file and moves the caret. Focus Search shows that page.
+Focus Messages shows the message notebook without changing its page.
 
 View stores line numbers, whitespace, line ends, indent markers, and
 the project manager. The project manager flag shows or hides the
 sidebar. The sidebar cannot be dragged to zero width. Hiding it
 remembers the width. The text view itself does not draw a gutter,
 whitespace glyphs, or indent guides. The line and column in the
-status line are the values the editor buffer keeps.
+status line are the values the editor buffer keeps. Focus Messages
+is on this menu.
+
+The message notebook sits under the editor. Its pages are Search,
+Diagnostics, and Build. Diagnostics lists the active document and
+the language-client messages. A click moves the caret. The client
+line numbers are zero-based; the caret move and the list add one.
+Build keeps the raw tool text in a text view and the parsed path
+and line rows in a list. A click opens that path and moves the
+caret.
+
+## Build
+
+Build runs Compile, Build, and Run. Those are stored entries, not a
+build system. Each entry has a label, a command, and a working
+directory. One error pattern is shared. User settings live in
+`ide.toml` under `build.compile_label`, `build.compile_command`,
+`build.compile_directory`, and the same shape for `build` and `run`,
+plus `build.error_regex`. A key in `.side/project.toml` overrides
+that user key. An empty directory means the project root. An empty
+command reports `no command` and does not start a process.
+
+The command runs through `sh -c` after changing to that directory.
+The current named document is saved first when it is dirty. Untitled
+buffers are left unsaved. Output is appended to the Build page, up
+to 256 KiB. A line the pattern parses becomes a row. `%p` is a path
+with no colon, `%l` is the line number, `%c` is a column that is
+not stored, `%*` skips text, and `%%` is a percent sign. The
+default pattern is `%p:%l:`. The menu label is the stored label.
+The command id stays `build-compile`, `build-build`, or `build-run`.
 
 ## Projects
 
@@ -117,8 +155,9 @@ The preferences window edits font size, tab width, spaces, brackets,
 auto-indent, and the language-client command, and Apply writes them
 immediately without changing the file text.
 
-Keyboard triggers are stored and checked for conflicts. The menus run
-the commands. The text view keeps GTK's own keys. A legacy
+Keyboard triggers are stored and checked for conflicts. The menus
+show the id and the stored trigger, and they run the commands. The
+text view keeps GTK's own keys. Nothing installs the trigger. A legacy
 `ide-shortcuts.conf` in the working directory is read when the
 settings file has no `[keyboard]` table. The first successful edit of
 the map is saved into the toml file and does not rewrite the legacy

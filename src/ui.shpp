@@ -41,6 +41,7 @@ public:
     void handle(int code);
     void on_menu(const char *label);
     void open_path(const char *path);
+    void open_at(const char *path, long line);
     void save_path(const char *path);
     void use_folder(const char *path);
     void choice(int response);
@@ -67,12 +68,25 @@ private:
     Application *app;
     Window *mainWindow;
     MenuButton *fileMenu;
+    MenuButton *editMenu;
+    MenuButton *searchMenu;
+    MenuButton *viewMenu;
+    MenuButton *projectMenu;
+    MenuButton *buildMenu;
+    MenuButton *helpMenu;
     Notebook *book;
     Notebook *sideBook;
+    Notebook *messageBook;
     ColumnView *projectList;
     ColumnView *fileList;
+    ColumnView *searchList;
+    ColumnView *diagList;
+    ColumnView *buildList;
+    TextBuffer *buildBuffer;
+    TextView *buildView;
     Label *status;
     Paned *split;
+    Paned *vsplit;
     Box *sideBox;
     IdePage pages[IDE_PAGES];
     PageRef refs[IDE_PAGES];
@@ -97,6 +111,14 @@ private:
     CheckButton *indentCheck;
     void build(void);
     void fill_file_menu(void);
+    void fill_menus(void);
+    void fill_one(
+            MenuButton *button,
+            const char **ids,
+            long count);
+    const char *menu_label(const char *id);
+    void fill_messages(void);
+    void reveal(long line);
     void add_page(long index);
     void rebuild(void);
     void push_active(void);
