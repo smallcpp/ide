@@ -8,7 +8,7 @@
 #include "toml.shpp"
 
 enum {
-    IDE_COMMANDS = 43
+    IDE_COMMANDS = 48
 };
 
 class Settings {

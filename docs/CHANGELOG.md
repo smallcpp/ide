@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+Menus call `Session::run` with a command id. The menu row stores
+that id, then a tab, then the label and any stored shortcut. The
+handler reads the id. Find in Project runs `find-project`. Search,
+View, Project, and Build do the same, including `goto-line`,
+`build-compile`, `build-build`, `build-run`, `focus-search`, and
+`focus-messages`.
+
+The window has a bottom message notebook. Search lists project
+hits. Diagnostics lists the active file and the language-client
+messages. Build shows the command's raw text and the lines an error
+pattern parsed. Activating a row opens the file and moves the caret.
+
+Build settings are three entries, compile, build, and run. Each
+entry has a label, a command, and a working directory. One
+`error_regex` is shared. A project key overrides the same user key.
+An empty directory means the project root. The pattern uses `%p` for
+a path, `%l` for a line, `%c` for a column, and `%*` to skip. The
+default is `%p:%l:`.
+
 Class definitions live in `.shpp` headers. Method bodies written
 outside the class are in `.scpp` files that `build` compiles and
 links. No file includes a `.scpp`.

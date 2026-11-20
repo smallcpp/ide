@@ -1,4 +1,5 @@
 #include "session.shpp"
+#include <fcntl>
 
 DocVec::DocVec() : Array((long)sizeof(Document *)) {
 }
@@ -240,6 +241,8 @@ Session::Session() {
     tree = new Explorer();
     client = new LspClient();
     hits = new HitVec();
+    buildHits = new HitVec();
+    buildOutput = new String();
     i = 0;
     while (i < 20) {
         recent[i] = nullptr;
@@ -265,6 +268,11 @@ Session::Session() {
     openedArgs = 0;
     prefsOpen = 0;
     aboutOpen = 0;
+    findOpen = 0;
+    gotoOpen = 0;
+    configureOpen = 0;
+    messagePage = 0;
+    messageJump = 0;
     choose = 0;
     matchCase = false;
     wholeWord = false;
@@ -331,6 +339,18 @@ int Session::show_preferences(void) {
 
 int Session::show_about(void) {
     return aboutOpen;
+}
+
+int Session::show_find(void) {
+    return findOpen;
+}
+
+int Session::show_goto(void) {
+    return gotoOpen;
+}
+
+int Session::show_configure(void) {
+    return configureOpen;
 }
 
 int Session::chooser(void) {
@@ -1626,10 +1646,326 @@ void Session::poll_command_views(const char *command) {
                 view_flag("editor.show_project_manager") == false);
 }
 
+const char *Session::build_value(long slot, const char *leaf) {
+    char key[80];
+    const char *name;
+    TomlDoc *cfg;
+    long n;
+
+    if (slot < 0 || slot > 2 || leaf == nullptr)
+        return "";
+    name = "compile";
+    if (slot == 1)
+        name = "build";
+    if (slot == 2)
+        name = "run";
+    text_copy(key, 80, "build.");
+    n = text_length(key);
+    text_copy(key + n, 80 - n, name);
+    n = text_length(key);
+    text_copy(key + n, 80 - n, "_");
+    n = text_length(key);
+    text_copy(key + n, 80 - n, leaf);
+    cfg = nullptr;
+    if (proj->is_project() == 1)
+        cfg = proj->config();
+    return prefs->effective_string(key, cfg);
+}
+
+const char *Session::build_label(long slot) {
+    return build_value(slot, "label");
+}
+
+const char *Session::build_command(long slot) {
+    return build_value(slot, "command");
+}
+
+const char *Session::build_directory(long slot) {
+    return build_value(slot, "directory");
+}
+
+const char *Session::build_regex(void) {
+    TomlDoc *cfg;
+
+    cfg = nullptr;
+    if (proj->is_project() == 1)
+        cfg = proj->config();
+    return prefs->effective_string("build.error_regex", cfg);
+}
+
+long Session::build_count(void) {
+    return buildHits->size();
+}
+
+const char *Session::build_path(long index) {
+    if (index < 0 || index >= buildHits->size())
+        return "";
+    return buildHits->at(index)->path->c_str();
+}
+
+long Session::build_line(long index) {
+    if (index < 0 || index >= buildHits->size())
+        return 0;
+    return buildHits->at(index)->line;
+}
+
+const char *Session::build_text(long index) {
+    if (index < 0 || index >= buildHits->size())
+        return "";
+    return buildHits->at(index)->text->c_str();
+}
+
+const char *Session::build_output(void) {
+    return buildOutput->c_str();
+}
+
+int Session::message_page(void) {
+    return messagePage;
+}
+
+int Session::take_message_jump(void) {
+    int jump;
+
+    jump = messageJump;
+    messageJump = 0;
+    return jump;
+}
+
+void Session::parse_build(const char *text, const char *dir) {
+    long i;
+    long start;
+    long n;
+    long len;
+    long k;
+    long number;
+    char line[1024];
+    char path[IDE_PATH];
+    char full[IDE_PATH];
+    const char *pattern;
+    SearchHit *hit;
+
+    buildHits = new HitVec();
+    if (text == nullptr)
+        return;
+    pattern = build_regex();
+    n = text_length(text);
+    i = 0;
+    start = 0;
+    while (i <= n && buildHits->size() < 200) {
+        if (i == n || text[i] == '\n') {
+            len = i - start;
+            if (len > 1023)
+                len = 1023;
+            k = 0;
+            while (k < len) {
+                line[k] = text[start + k];
+                k = k + 1;
+            }
+            line[k] = 0;
+            if (k > 0 && line[k - 1] == '\r')
+                line[k - 1] = 0;
+            number = 0;
+            path[0] = 0;
+            if (error_match(
+                        pattern,
+                        line,
+                        path,
+                        IDE_PATH,
+                        &number) == 1) {
+                hit = new SearchHit();
+                hit->path = new String();
+                if (path_is_abs(path) == 1)
+                    hit->path->append(path);
+                else {
+                    path_join(full, IDE_PATH, dir, path);
+                    if (full[0] == 0)
+                        hit->path->append(path);
+                    else
+                        hit->path->append(full);
+                }
+                hit->line = number;
+                hit->text = new String();
+                hit->text->append(line);
+                buildHits->add(hit);
+            }
+            start = i + 1;
+        }
+        i = i + 1;
+    }
+}
+
+int Session::capture_command(
+        const char *dir,
+        const char *command,
+        String *out,
+        int *status) {
+    char script[64];
+    char arg0[8];
+    char arg1[8];
+    char zero[8];
+    char dirBuf[IDE_PATH];
+    char cmdBuf[2048];
+    char buf[1024];
+    char *args[7];
+    int pipes[2];
+    int devnull;
+    int rc;
+    long n;
+    long kept;
+    long use;
+    long k;
+    pid_t pid;
+    int code;
+    posix_spawn_file_actions_t actions;
+
+    if (out == nullptr || dir == nullptr || command == nullptr)
+        return 0;
+    if (status != nullptr)
+        *status = -1;
+    text_copy(script, 64, "cd -- \"$1\" && eval \"$2\"");
+    text_copy(arg0, 8, "sh");
+    text_copy(arg1, 8, "-c");
+    text_copy(zero, 8, "sh");
+    text_copy(dirBuf, IDE_PATH, dir);
+    text_copy(cmdBuf, 2048, command);
+    args[0] = arg0;
+    args[1] = arg1;
+    args[2] = script;
+    args[3] = zero;
+    args[4] = dirBuf;
+    args[5] = cmdBuf;
+    args[6] = nullptr;
+    devnull = open("/dev/null", O_RDONLY);
+    if (devnull < 0)
+        return 0;
+    if (pipe(pipes) != 0) {
+        close(devnull);
+        return 0;
+    }
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_adddup2(&actions, devnull, 0);
+    posix_spawn_file_actions_adddup2(&actions, pipes[1], 1);
+    posix_spawn_file_actions_adddup2(&actions, pipes[1], 2);
+    posix_spawn_file_actions_addclose(&actions, pipes[0]);
+    posix_spawn_file_actions_addclose(&actions, pipes[1]);
+    posix_spawn_file_actions_addclose(&actions, devnull);
+    pid = 0;
+    rc = posix_spawnp(
+            &pid,
+            "sh",
+            &actions,
+            nullptr,
+            args,
+            nullptr);
+    posix_spawn_file_actions_destroy(&actions);
+    close(devnull);
+    close(pipes[1]);
+    if (rc != 0) {
+        close(pipes[0]);
+        return 0;
+    }
+    kept = 0;
+    while (1) {
+        n = read(pipes[0], (void *)buf, 1023);
+        if (n < 0) {
+            close(pipes[0]);
+            waitpid(pid, &code, 0);
+            return 0;
+        }
+        if (n == 0)
+            break;
+        use = n;
+        if (kept + use > 262144)
+            use = 262144 - kept;
+        if (use > 0) {
+            k = 0;
+            while (k < use) {
+                if (buf[k] == 0)
+                    buf[k] = ' ';
+                k = k + 1;
+            }
+            buf[use] = 0;
+            out->append(buf);
+            kept = kept + use;
+        }
+    }
+    close(pipes[0]);
+    code = 0;
+    if (waitpid(pid, &code, 0) < 0)
+        return 0;
+    if (status == nullptr)
+        return 1;
+    if (WIFEXITED(code) == 0) {
+        *status = -1;
+        return 1;
+    }
+    *status = WEXITSTATUS(code);
+    return 1;
+}
+
+int Session::run_build(long slot) {
+    const char *command;
+    const char *dir;
+    Document *doc;
+    String *out;
+    int status;
+    char root[IDE_PATH];
+
+    doc = active();
+    if (doc != nullptr
+            && doc->untitled() == 0
+            && doc->buffer()->dirty() == true) {
+        if (save_named(doc) != IDE_OK)
+            return IDE_FAILED;
+    }
+    command = build_command(slot);
+    if (command == nullptr || command[0] == 0) {
+        set_error("no command");
+        messagePage = 2;
+        messageJump = 1;
+        return IDE_FAILED;
+    }
+    if (text_length(command) > 2047) {
+        set_error("command too long");
+        return IDE_FAILED;
+    }
+    dir = build_directory(slot);
+    if (dir == nullptr || dir[0] == 0) {
+        dir = proj->root();
+        if (dir == nullptr || dir[0] == 0)
+            dir = ".";
+    }
+    text_copy(root, IDE_PATH, dir);
+    out = new String();
+    status = 0;
+    if (capture_command(root, command, out, &status) == 0) {
+        set_error("spawn");
+        buildOutput = out;
+        buildHits = new HitVec();
+        messagePage = 2;
+        messageJump = 1;
+        return IDE_FAILED;
+    }
+    buildOutput = out;
+    parse_build(out->c_str(), root);
+    messagePage = 2;
+    messageJump = 1;
+    if (status != 0) {
+        set_error("build failed");
+        return IDE_FAILED;
+    }
+    set_error("");
+    return IDE_OK;
+}
+
 int Session::run(const char *command) {
     choose = 0;
     prefsOpen = 0;
     aboutOpen = 0;
+    findOpen = 0;
+    gotoOpen = 0;
+    configureOpen = 0;
+    messageJump = 0;
     if (command == nullptr)
         return IDE_FAILED;
     if (text_same(command, "new") == 1)
@@ -1652,12 +1988,19 @@ int Session::run(const char *command) {
         return close_all();
     if (text_same(command, "quit") == 1)
         return quit();
-    if (text_same(command, "find") == 1)
+    if (text_same(command, "find") == 1) {
+        findOpen = 1;
         return begin_find();
-    if (text_same(command, "replace") == 1)
+    }
+    if (text_same(command, "replace") == 1) {
+        findOpen = 1;
         return replace_one();
-    if (text_same(command, "find-project") == 1)
+    }
+    if (text_same(command, "find-project") == 1) {
+        messagePage = 0;
+        messageJump = 1;
         return search_project(queryText->c_str());
+    }
     if (text_same(command, "undo") == 1) {
         if (active() != nullptr)
             active()->buffer()->undo();
@@ -1747,6 +2090,47 @@ int Session::run(const char *command) {
     }
     if (text_same(command, "plugin-debug") == 1) {
         plugin_debug();
+        return IDE_OK;
+    }
+    if (text_same(command, "goto-line") == 1) {
+        gotoOpen = 1;
+        return IDE_OK;
+    }
+    if (text_same(command, "project-new") == 1) {
+        choose = IDE_CHOOSE_NEW_PROJECT;
+        return IDE_CHOOSE_NEW_PROJECT;
+    }
+    if (text_same(command, "project-open") == 1) {
+        choose = IDE_CHOOSE_OPEN_PROJECT;
+        return IDE_CHOOSE_OPEN_PROJECT;
+    }
+    if (text_same(command, "project-close") == 1)
+        return project_close();
+    if (text_same(command, "project-save") == 1)
+        return project_save();
+    if (text_same(command, "project-save-as") == 1) {
+        choose = IDE_CHOOSE_SAVE_PROJECT;
+        return IDE_CHOOSE_SAVE_PROJECT;
+    }
+    if (text_same(command, "project-delete") == 1)
+        return project_delete();
+    if (text_same(command, "project-configure") == 1) {
+        configureOpen = 1;
+        return IDE_OK;
+    }
+    if (text_same(command, "build-compile") == 1)
+        return run_build(0);
+    if (text_same(command, "build-build") == 1)
+        return run_build(1);
+    if (text_same(command, "build-run") == 1)
+        return run_build(2);
+    if (text_same(command, "focus-search") == 1) {
+        messagePage = 0;
+        messageJump = 1;
+        return IDE_OK;
+    }
+    if (text_same(command, "focus-messages") == 1) {
+        messageJump = 1;
         return IDE_OK;
     }
     poll_command_views(command);

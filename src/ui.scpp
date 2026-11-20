@@ -1,4 +1,5 @@
 #include "ui.shpp"
+#include <stdlib>
 
 
 
@@ -133,6 +134,34 @@ void ui_switched(void *data, long index) {
     ideUi->switched(index);
 }
 
+void ui_search_row(void *data, long index) {
+    (void)data;
+    ideUi->open_at(
+            ideUi->editor()->hit_path(index),
+            ideUi->editor()->hit_line(index));
+}
+
+void ui_diag_row(void *data, long index) {
+    Document *doc;
+    const char *path;
+    long line;
+
+    (void)data;
+    doc = ideUi->editor()->active();
+    path = "";
+    if (doc != nullptr && doc->untitled() == 0)
+        path = doc->path();
+    line = ideUi->editor()->lsp()->diag_line(index) + 1;
+    ideUi->open_at(path, line);
+}
+
+void ui_build_row(void *data, long index) {
+    (void)data;
+    ideUi->open_at(
+            ideUi->editor()->build_path(index),
+            ideUi->editor()->build_line(index));
+}
+
 void ui_project_row(void *data, long index) {
     ExplorerEntry *row;
 
@@ -198,6 +227,19 @@ Ui::Ui(Session *session) {
     choiceMode = 0;
     pendingPath = new String();
     fileMenu = nullptr;
+    editMenu = nullptr;
+    searchMenu = nullptr;
+    viewMenu = nullptr;
+    projectMenu = nullptr;
+    buildMenu = nullptr;
+    helpMenu = nullptr;
+    messageBook = nullptr;
+    searchList = nullptr;
+    diagList = nullptr;
+    buildList = nullptr;
+    buildBuffer = nullptr;
+    buildView = nullptr;
+    vsplit = nullptr;
     i = 0;
     while (i < IDE_PAGES) {
         pages[i].buffer = nullptr;
@@ -226,58 +268,396 @@ Session *Ui::editor(void) {
     return state;
 }
 
+/* malloc, not new. The collector moves new buffers,
+ * and the menu model reads the label after later
+ * allocations. A malloc copy stays put.
+ */
+char *ui_keep(const char *text) {
+    long n;
+    long i;
+    char *copy;
+
+    if (text == nullptr)
+        text = "";
+    n = 0;
+    while (text[n] != 0)
+        n = n + 1;
+    copy = (char *)malloc((unsigned long)(n + 1));
+    if (copy == nullptr)
+        return nullptr;
+    i = 0;
+    while (i <= n) {
+        copy[i] = text[i];
+        i = i + 1;
+    }
+    return copy;
+}
+
+void ui_free(char *text) {
+    if (text != nullptr)
+        free((void *)text);
+}
+
+char *ui_menu_row(
+        const char *id,
+        const char *label,
+        const char *binding) {
+    long idN;
+    long labelN;
+    long bindN;
+    long n;
+    long i;
+    long at;
+    char *row;
+
+    if (id == nullptr)
+        id = "";
+    if (label == nullptr)
+        label = "";
+    if (binding == nullptr)
+        binding = "";
+    idN = 0;
+    while (id[idN] != 0)
+        idN = idN + 1;
+    labelN = 0;
+    while (label[labelN] != 0)
+        labelN = labelN + 1;
+    bindN = 0;
+    while (binding[bindN] != 0)
+        bindN = bindN + 1;
+    n = idN + 1 + labelN;
+    if (bindN > 0)
+        n = n + 2 + bindN;
+    row = (char *)malloc((unsigned long)(n + 1));
+    if (row == nullptr)
+        return nullptr;
+    i = 0;
+    while (i < idN) {
+        row[i] = id[i];
+        i = i + 1;
+    }
+    at = idN;
+    row[at] = '\t';
+    at = at + 1;
+    i = 0;
+    while (i < labelN) {
+        row[at + i] = label[i];
+        i = i + 1;
+    }
+    at = at + labelN;
+    if (bindN > 0) {
+        row[at] = ' ';
+        row[at + 1] = ' ';
+        at = at + 2;
+        i = 0;
+        while (i < bindN) {
+            row[at + i] = binding[i];
+            i = i + 1;
+        }
+        at = at + bindN;
+    }
+    row[at] = 0;
+    return row;
+}
+
+void ui_row3(
+        ColumnView *view,
+        const char *a,
+        const char *b,
+        const char *c) {
+    char *ca;
+    char *cb;
+    char *cc;
+    const char *cells[3];
+
+    ca = ui_keep(a);
+    cb = ui_keep(b);
+    cc = ui_keep(c);
+    cells[0] = "";
+    cells[1] = "";
+    cells[2] = "";
+    if (ca != nullptr)
+        cells[0] = ca;
+    if (cb != nullptr)
+        cells[1] = cb;
+    if (cc != nullptr)
+        cells[2] = cc;
+    view->append_row(cells, 3);
+    ui_free(ca);
+    ui_free(cb);
+    ui_free(cc);
+}
+
+const char *Ui::menu_label(const char *id) {
+    if (text_same(id, "build-compile") == 1)
+        return state->build_label(0);
+    if (text_same(id, "build-build") == 1)
+        return state->build_label(1);
+    if (text_same(id, "build-run") == 1)
+        return state->build_label(2);
+    if (text_same(id, "new") == 1)
+        return "New";
+    if (text_same(id, "open") == 1)
+        return "Open";
+    if (text_same(id, "save") == 1)
+        return "Save";
+    if (text_same(id, "save-as") == 1)
+        return "Save As";
+    if (text_same(id, "save-all") == 1)
+        return "Save All";
+    if (text_same(id, "reload") == 1)
+        return "Reload";
+    if (text_same(id, "close") == 1)
+        return "Close";
+    if (text_same(id, "close-all") == 1)
+        return "Close All";
+    if (text_same(id, "open-folder") == 1)
+        return "Open Folder";
+    if (text_same(id, "quit") == 1)
+        return "Quit";
+    if (text_same(id, "undo") == 1)
+        return "Undo";
+    if (text_same(id, "redo") == 1)
+        return "Redo";
+    if (text_same(id, "cut") == 1)
+        return "Cut";
+    if (text_same(id, "copy") == 1)
+        return "Copy";
+    if (text_same(id, "paste") == 1)
+        return "Paste";
+    if (text_same(id, "select-all") == 1)
+        return "Select All";
+    if (text_same(id, "find") == 1)
+        return "Find";
+    if (text_same(id, "replace") == 1)
+        return "Replace";
+    if (text_same(id, "find-project") == 1)
+        return "Find in Project";
+    if (text_same(id, "goto-line") == 1)
+        return "Go to Line";
+    if (text_same(id, "comment") == 1)
+        return "Comment";
+    if (text_same(id, "block-comment") == 1)
+        return "Block Comment";
+    if (text_same(id, "indent") == 1)
+        return "Indent";
+    if (text_same(id, "outdent") == 1)
+        return "Outdent";
+    if (text_same(id, "strip-trailing-spaces") == 1)
+        return "Strip Trailing Spaces";
+    if (text_same(id, "insert-column") == 1)
+        return "Insert at Column";
+    if (text_same(id, "delete-column") == 1)
+        return "Delete at Column";
+    if (text_same(id, "plugin-time") == 1)
+        return "Insert Date";
+    if (text_same(id, "plugin-debug") == 1)
+        return "Toggle Debug";
+    if (text_same(id, "show-line-numbers") == 1)
+        return "Line Numbers";
+    if (text_same(id, "show-whitespace") == 1)
+        return "Whitespace";
+    if (text_same(id, "show-line-ends") == 1)
+        return "Line Ends";
+    if (text_same(id, "show-indent-markers") == 1)
+        return "Indent Markers";
+    if (text_same(id, "show-project-manager") == 1)
+        return "Project Manager";
+    if (text_same(id, "focus-search") == 1)
+        return "Focus Search";
+    if (text_same(id, "focus-messages") == 1)
+        return "Focus Messages";
+    if (text_same(id, "project-new") == 1)
+        return "New Project";
+    if (text_same(id, "project-open") == 1)
+        return "Open Project";
+    if (text_same(id, "project-close") == 1)
+        return "Close Project";
+    if (text_same(id, "project-save") == 1)
+        return "Save Project";
+    if (text_same(id, "project-save-as") == 1)
+        return "Save Project As";
+    if (text_same(id, "project-delete") == 1)
+        return "Delete Project";
+    if (text_same(id, "project-configure") == 1)
+        return "Configure Exclusions";
+    if (text_same(id, "preferences") == 1)
+        return "Preferences";
+    if (text_same(id, "about") == 1)
+        return "About";
+    return id;
+}
+
+void Ui::fill_one(
+        MenuButton *button,
+        const char **ids,
+        long count) {
+    const char *labels[40];
+    char *kept[40];
+    char *labelCopy;
+    char *bindCopy;
+    long i;
+
+    if (button == nullptr || count < 0 || count > 40)
+        return;
+    i = 0;
+    while (i < count) {
+        labelCopy = ui_keep(menu_label(ids[i]));
+        bindCopy = ui_keep(
+                state->settings()->binding(ids[i]));
+        kept[i] = ui_menu_row(
+                ids[i],
+                labelCopy,
+                bindCopy);
+        ui_free(labelCopy);
+        ui_free(bindCopy);
+        if (kept[i] == nullptr)
+            labels[i] = ids[i];
+        else
+            labels[i] = kept[i];
+        i = i + 1;
+    }
+    button->set_menu(labels, count, ui_menu, nullptr);
+    i = 0;
+    while (i < count) {
+        ui_free(kept[i]);
+        i = i + 1;
+    }
+}
+
 void Ui::fill_file_menu(void) {
-    const char *fileLabels[40];
+    const char *fileIds[9];
+    const char *labels[40];
+    char *kept[40];
+    char *labelCopy;
+    char *bindCopy;
+    char *pathCopy;
     long n;
     long i;
 
     if (fileMenu == nullptr)
         return;
+    fileIds[0] = "new";
+    fileIds[1] = "open";
+    fileIds[2] = "save";
+    fileIds[3] = "save-as";
+    fileIds[4] = "save-all";
+    fileIds[5] = "reload";
+    fileIds[6] = "close";
+    fileIds[7] = "close-all";
+    fileIds[8] = "open-folder";
     n = 0;
-    fileLabels[n] = "New";
-    n = n + 1;
-    fileLabels[n] = "Open";
-    n = n + 1;
-    fileLabels[n] = "Save";
-    n = n + 1;
-    fileLabels[n] = "Save As";
-    n = n + 1;
-    fileLabels[n] = "Save All";
-    n = n + 1;
-    fileLabels[n] = "Reload";
-    n = n + 1;
-    fileLabels[n] = "Close";
-    n = n + 1;
-    fileLabels[n] = "Close All";
-    n = n + 1;
-    fileLabels[n] = "Open Folder";
-    n = n + 1;
     i = 0;
-    while (i < state->recent_count() && i < 20 && n < 38) {
-        recentText[i]->truncate(0, recentText[i]->size());
-        recentText[i]->append("Recent: ");
-        recentText[i]->append(state->recent_at(i));
-        fileLabels[n] = recentText[i]->c_str();
+    while (i < 9) {
+        labelCopy = ui_keep(menu_label(fileIds[i]));
+        bindCopy = ui_keep(
+                state->settings()->binding(fileIds[i]));
+        kept[n] = ui_menu_row(
+                fileIds[i],
+                labelCopy,
+                bindCopy);
+        ui_free(labelCopy);
+        ui_free(bindCopy);
+        if (kept[n] == nullptr)
+            labels[n] = fileIds[i];
+        else
+            labels[n] = kept[n];
         n = n + 1;
         i = i + 1;
     }
-    fileLabels[n] = "Quit";
+    i = 0;
+    while (i < state->recent_count() && i < 20 && n < 38) {
+        pathCopy = ui_keep(state->recent_at(i));
+        kept[n] = ui_menu_row("recent", pathCopy, "");
+        ui_free(pathCopy);
+        if (kept[n] == nullptr)
+            labels[n] = "recent";
+        else
+            labels[n] = kept[n];
+        n = n + 1;
+        i = i + 1;
+    }
+    labelCopy = ui_keep(menu_label("quit"));
+    bindCopy = ui_keep(state->settings()->binding("quit"));
+    kept[n] = ui_menu_row("quit", labelCopy, bindCopy);
+    ui_free(labelCopy);
+    ui_free(bindCopy);
+    if (kept[n] == nullptr)
+        labels[n] = "quit";
+    else
+        labels[n] = kept[n];
     n = n + 1;
-    fileMenu->set_menu(fileLabels, n, ui_menu, nullptr);
+    fileMenu->set_menu(labels, n, ui_menu, nullptr);
+    i = 0;
+    while (i < n) {
+        ui_free(kept[i]);
+        i = i + 1;
+    }
+}
+
+void Ui::fill_menus(void) {
+    const char *editIds[15];
+    const char *searchIds[5];
+    const char *viewIds[6];
+    const char *projectIds[7];
+    const char *buildIds[3];
+    const char *helpIds[2];
+
+    fill_file_menu();
+    editIds[0] = "undo";
+    editIds[1] = "redo";
+    editIds[2] = "cut";
+    editIds[3] = "copy";
+    editIds[4] = "paste";
+    editIds[5] = "select-all";
+    editIds[6] = "comment";
+    editIds[7] = "block-comment";
+    editIds[8] = "indent";
+    editIds[9] = "outdent";
+    editIds[10] = "strip-trailing-spaces";
+    editIds[11] = "insert-column";
+    editIds[12] = "delete-column";
+    editIds[13] = "plugin-time";
+    editIds[14] = "plugin-debug";
+    fill_one(editMenu, editIds, 15);
+    searchIds[0] = "find";
+    searchIds[1] = "replace";
+    searchIds[2] = "find-project";
+    searchIds[3] = "goto-line";
+    searchIds[4] = "focus-search";
+    fill_one(searchMenu, searchIds, 5);
+    viewIds[0] = "show-line-numbers";
+    viewIds[1] = "show-whitespace";
+    viewIds[2] = "show-line-ends";
+    viewIds[3] = "show-indent-markers";
+    viewIds[4] = "show-project-manager";
+    viewIds[5] = "focus-messages";
+    fill_one(viewMenu, viewIds, 6);
+    projectIds[0] = "project-new";
+    projectIds[1] = "project-open";
+    projectIds[2] = "project-close";
+    projectIds[3] = "project-save";
+    projectIds[4] = "project-save-as";
+    projectIds[5] = "project-delete";
+    projectIds[6] = "project-configure";
+    fill_one(projectMenu, projectIds, 7);
+    buildIds[0] = "build-compile";
+    buildIds[1] = "build-build";
+    buildIds[2] = "build-run";
+    fill_one(buildMenu, buildIds, 3);
+    helpIds[0] = "preferences";
+    helpIds[1] = "about";
+    fill_one(helpMenu, helpIds, 2);
 }
 
 void Ui::build(void) {
     HeaderBar *bar;
-    MenuButton *editMenu;
-    MenuButton *viewMenu;
-    MenuButton *projectMenu;
-    MenuButton *helpMenu;
-    const char *editLabels[20];
-    const char *viewLabels[8];
-    const char *projectLabels[8];
-    const char *helpLabels[4];
     Box *outer;
-    Box *editorBox;
+    Box *buildBox;
+    ScrolledWindow *searchScroll;
+    ScrolledWindow *diagScroll;
+    ScrolledWindow *buildScroll;
+    ScrolledWindow *buildTextScroll;
     Button *refreshButton;
     Button *hideButton;
     CheckButton *hidden;
@@ -311,51 +691,17 @@ void Ui::build(void) {
     bar->set_title("ide");
     fileMenu = new MenuButton("File");
     editMenu = new MenuButton("Edit");
+    searchMenu = new MenuButton("Search");
     viewMenu = new MenuButton("View");
     projectMenu = new MenuButton("Project");
+    buildMenu = new MenuButton("Build");
     helpMenu = new MenuButton("Help");
-    fill_file_menu();
-    editLabels[0] = "Undo";
-    editLabels[1] = "Redo";
-    editLabels[2] = "Cut";
-    editLabels[3] = "Copy";
-    editLabels[4] = "Paste";
-    editLabels[5] = "Select All";
-    editLabels[6] = "Find";
-    editLabels[7] = "Replace";
-    editLabels[8] = "Find in Project";
-    editLabels[9] = "Go to Line";
-    editLabels[10] = "Comment";
-    editLabels[11] = "Block Comment";
-    editLabels[12] = "Indent";
-    editLabels[13] = "Outdent";
-    editLabels[14] = "Strip Trailing Spaces";
-    editLabels[15] = "Insert at Column";
-    editLabels[16] = "Delete at Column";
-    editLabels[17] = "Insert Date";
-    editLabels[18] = "Toggle Debug";
-    editMenu->set_menu(editLabels, 19, ui_menu, nullptr);
-    viewLabels[0] = "Line Numbers";
-    viewLabels[1] = "Whitespace";
-    viewLabels[2] = "Line Ends";
-    viewLabels[3] = "Indent Markers";
-    viewLabels[4] = "Project Manager";
-    viewMenu->set_menu(viewLabels, 5, ui_menu, nullptr);
-    projectLabels[0] = "New Project";
-    projectLabels[1] = "Open Project";
-    projectLabels[2] = "Close Project";
-    projectLabels[3] = "Save Project";
-    projectLabels[4] = "Save Project As";
-    projectLabels[5] = "Delete Project";
-    projectLabels[6] = "Configure Exclusions";
-    projectMenu->set_menu(projectLabels, 7, ui_menu, nullptr);
-    helpLabels[0] = "Preferences";
-    helpLabels[1] = "About";
-    helpMenu->set_menu(helpLabels, 2, ui_menu, nullptr);
     bar->pack_start((Widget *)fileMenu);
     bar->pack_start((Widget *)editMenu);
+    bar->pack_start((Widget *)searchMenu);
     bar->pack_start((Widget *)viewMenu);
     bar->pack_start((Widget *)projectMenu);
+    bar->pack_start((Widget *)buildMenu);
     bar->pack_end((Widget *)helpMenu);
     outer = new Box(GTK_VERTICAL, 0);
     outer->append((Widget *)bar);
@@ -381,18 +727,73 @@ void Ui::build(void) {
     sideBox->append((Widget *)refreshButton);
     sideBox->append((Widget *)hidden);
     sideBox->append((Widget *)hideButton);
-    editorBox = new Box(GTK_VERTICAL, 0);
     book = new Notebook();
     book->on_switch_page(ui_switched, nullptr);
     book->set_v_expand(true);
     status = new Label("ide");
-    editorBox->append((Widget *)book);
-    editorBox->append((Widget *)status);
     split->set_start_child((Widget *)sideBox);
-    split->set_end_child((Widget *)editorBox);
+    split->set_end_child((Widget *)book);
     split->set_position(side);
     split->set_v_expand(true);
-    outer->append((Widget *)split);
+    messageBook = new Notebook();
+    messageBook->set_v_expand(true);
+    searchList = new ColumnView();
+    searchList->append_column("Path");
+    searchList->append_column("Line");
+    searchList->append_column("Text");
+    searchList->on_activate(ui_search_row, nullptr);
+    diagList = new ColumnView();
+    diagList->append_column("Path");
+    diagList->append_column("Line");
+    diagList->append_column("Message");
+    diagList->on_activate(ui_diag_row, nullptr);
+    buildList = new ColumnView();
+    buildList->append_column("Path");
+    buildList->append_column("Line");
+    buildList->append_column("Text");
+    buildList->on_activate(ui_build_row, nullptr);
+    buildBuffer = new TextBuffer();
+    buildView = new TextView(buildBuffer);
+    buildView->set_monospace(true);
+    buildView->set_editable(false);
+    searchScroll = new ScrolledWindow();
+    searchScroll->set_policy(
+            GTK_POLICY_AUTOMATIC,
+            GTK_POLICY_AUTOMATIC);
+    searchScroll->set_child((Widget *)searchList);
+    searchScroll->set_v_expand(true);
+    diagScroll = new ScrolledWindow();
+    diagScroll->set_policy(
+            GTK_POLICY_AUTOMATIC,
+            GTK_POLICY_AUTOMATIC);
+    diagScroll->set_child((Widget *)diagList);
+    diagScroll->set_v_expand(true);
+    buildScroll = new ScrolledWindow();
+    buildScroll->set_policy(
+            GTK_POLICY_AUTOMATIC,
+            GTK_POLICY_AUTOMATIC);
+    buildScroll->set_child((Widget *)buildList);
+    buildScroll->set_v_expand(true);
+    buildTextScroll = new ScrolledWindow();
+    buildTextScroll->set_policy(
+            GTK_POLICY_AUTOMATIC,
+            GTK_POLICY_AUTOMATIC);
+    buildTextScroll->set_child((Widget *)buildView);
+    buildTextScroll->set_v_expand(true);
+    buildBox = new Box(GTK_VERTICAL, 0);
+    buildBox->set_v_expand(true);
+    buildBox->append((Widget *)buildScroll);
+    buildBox->append((Widget *)buildTextScroll);
+    messageBook->append_page((Widget *)searchScroll, "Search");
+    messageBook->append_page((Widget *)diagScroll, "Diagnostics");
+    messageBook->append_page((Widget *)buildBox, "Build");
+    vsplit = new Paned(GTK_VERTICAL);
+    vsplit->set_start_child((Widget *)split);
+    vsplit->set_end_child((Widget *)messageBook);
+    vsplit->set_position(480);
+    vsplit->set_v_expand(true);
+    outer->append((Widget *)vsplit);
+    outer->append((Widget *)status);
     mainWindow->set_child((Widget *)outer);
     files = new FileDialog();
     choiceDialog = new Dialog("Confirm");
@@ -461,6 +862,7 @@ void Ui::build(void) {
     prefBox->append((Widget *)lspEntry);
     prefBox->append((Widget *)applyButton);
     prefWindow->set_child((Widget *)prefBox);
+    fill_menus();
 }
 
 void Ui::add_page(long index) {
@@ -675,8 +1077,13 @@ void Ui::refresh(void) {
         rebuild();
     else
         push_active();
-    fill_file_menu();
+    fill_menus();
     fill_lists();
+    fill_messages();
+    if (state->take_message_jump() == 1
+            && messageBook != nullptr)
+        messageBook->set_current_page(
+                (long)state->message_page());
     paint_status();
 }
 
@@ -763,15 +1170,137 @@ void Ui::handle(int code) {
         show_folder(0);
         return;
     }
+    if (code == IDE_CHOOSE_NEW_PROJECT) {
+        show_folder(1);
+        return;
+    }
+    if (code == IDE_CHOOSE_OPEN_PROJECT) {
+        show_folder(2);
+        return;
+    }
+    if (code == IDE_CHOOSE_SAVE_PROJECT) {
+        show_folder(3);
+        return;
+    }
     if (code == 2) {
         pendingPath = new String();
         pendingPath->append(folderEntry->text());
         show_choice("Replace project metadata?", 2);
         return;
     }
+    if (state->show_goto() == 1)
+        show_goto();
+    if (state->show_configure() == 1)
+        show_exclude();
+    if (state->show_preferences() == 1)
+        show_prefs();
     if (state->show_about() == 1)
         show_about();
+    if (state->show_find() == 1)
+        show_find();
     refresh();
+}
+
+void Ui::fill_messages(void) {
+    char number[32];
+    long i;
+    long n;
+    Document *doc;
+    const char *path;
+
+    if (searchList == nullptr || diagList == nullptr)
+        return;
+    if (buildList == nullptr || buildBuffer == nullptr)
+        return;
+    searchList->clear_rows();
+    n = state->hit_count();
+    if (n > IDE_ROWS)
+        n = IDE_ROWS;
+    i = 0;
+    while (i < n) {
+        snprintf(number, 32, "%ld", state->hit_line(i));
+        ui_row3(
+                searchList,
+                state->hit_path(i),
+                number,
+                state->hit_text(i));
+        i = i + 1;
+    }
+    diagList->clear_rows();
+    doc = state->active();
+    path = "";
+    if (doc != nullptr && doc->untitled() == 0)
+        path = doc->path();
+    n = state->lsp()->diag_count();
+    if (n > IDE_ROWS)
+        n = IDE_ROWS;
+    i = 0;
+    while (i < n) {
+        snprintf(
+                number,
+                32,
+                "%ld",
+                state->lsp()->diag_line(i) + 1);
+        ui_row3(
+                diagList,
+                path,
+                number,
+                state->lsp()->diag_message(i));
+        i = i + 1;
+    }
+    buildList->clear_rows();
+    n = state->build_count();
+    if (n > IDE_ROWS)
+        n = IDE_ROWS;
+    i = 0;
+    while (i < n) {
+        snprintf(number, 32, "%ld", state->build_line(i));
+        ui_row3(
+                buildList,
+                state->build_path(i),
+                number,
+                state->build_text(i));
+        i = i + 1;
+    }
+    if (text_same(
+                buildBuffer->get_text(),
+                state->build_output()) == 0)
+        buildBuffer->set_text(state->build_output());
+}
+
+void Ui::reveal(long line) {
+    long index;
+    TextIter *at;
+
+    if (line < 1)
+        line = 1;
+    index = state->index();
+    if (index < 0 || index >= pageCount)
+        return;
+    if (pages[index].buffer == nullptr)
+        return;
+    at = new TextIter(line - 1, 0);
+    pages[index].buffer->place_cursor(at);
+    pages[index].view->scroll_to(line - 1, 0);
+}
+
+void Ui::open_at(const char *path, long line) {
+    int code;
+
+    if (line < 1)
+        line = 1;
+    if (path != nullptr && path[0] != 0) {
+        code = state->open_file(path);
+        if (code != IDE_OK) {
+            handle(code);
+            return;
+        }
+    }
+    if (state->active() == nullptr)
+        return;
+    state->active()->buffer()->move_to(line, 1);
+    refresh();
+    reveal(line);
 }
 
 void Ui::open_path(const char *path) {
@@ -895,6 +1424,7 @@ void Ui::tick(void) {
     state->snapshot_recovery();
     if (state->index() >= 0 && state->index() < pageCount)
         highlight(state->index());
+    fill_messages();
     paint_status();
 }
 
@@ -947,188 +1477,34 @@ void Ui::configure_ok(void) {
     handle(state->project_configure(excludeEntry->text()));
 }
 
-void Ui::on_menu(const char *label) {
-    if (label == nullptr)
+void Ui::on_menu(const char *row) {
+    char id[64];
+    const char *rest;
+    long i;
+
+    if (row == nullptr)
         return;
-    if (text_starts(label, "Recent: ") == 1) {
-        open_path(label + 8);
+    i = 0;
+    while (row[i] != 0 && row[i] != '\t' && i < 63) {
+        id[i] = row[i];
+        i = i + 1;
+    }
+    id[i] = 0;
+    rest = "";
+    if (row[i] == '\t')
+        rest = row + i + 1;
+    if (text_same(id, "recent") == 1) {
+        open_path(rest);
         return;
     }
-    if (text_same(label, "New") == 1) {
-        handle(state->run("new"));
-        return;
-    }
-    if (text_same(label, "Open") == 1) {
-        handle(state->run("open"));
-        return;
-    }
-    if (text_same(label, "Save") == 1) {
-        handle(state->run("save"));
-        return;
-    }
-    if (text_same(label, "Save As") == 1) {
-        handle(state->run("save-as"));
-        return;
-    }
-    if (text_same(label, "Save All") == 1) {
-        handle(state->run("save-all"));
-        return;
-    }
-    if (text_same(label, "Reload") == 1) {
-        handle(state->run("reload"));
-        return;
-    }
-    if (text_same(label, "Close") == 1) {
-        handle(state->run("close"));
-        return;
-    }
-    if (text_same(label, "Close All") == 1) {
-        handle(state->run("close-all"));
-        return;
-    }
-    if (text_same(label, "Open Folder") == 1) {
-        show_folder(0);
-        return;
-    }
-    if (text_same(label, "Quit") == 1) {
-        handle(state->run("quit"));
-        if (state->quit_ready() == 1) {
-            uiLive = 0;
-            mainWindow->close();
-        }
-        return;
-    }
-    if (text_same(label, "Undo") == 1) {
-        handle(state->run("undo"));
-        return;
-    }
-    if (text_same(label, "Redo") == 1) {
-        handle(state->run("redo"));
-        return;
-    }
-    if (text_same(label, "Cut") == 1) {
-        handle(state->run("cut"));
-        return;
-    }
-    if (text_same(label, "Copy") == 1) {
-        handle(state->run("copy"));
-        return;
-    }
-    if (text_same(label, "Paste") == 1) {
-        handle(state->run("paste"));
-        return;
-    }
-    if (text_same(label, "Select All") == 1) {
-        handle(state->run("select-all"));
-        return;
-    }
-    if (text_same(label, "Find") == 1 || text_same(label, "Replace") == 1) {
-        show_find();
-        return;
-    }
-    if (text_same(label, "Find in Project") == 1) {
+    if (text_same(id, "find-project") == 1
+            && findEntry != nullptr
+            && findEntry->text()[0] != 0)
         state->set_query(findEntry->text());
-        state->search_project(state->query());
-        refresh();
-        return;
-    }
-    if (text_same(label, "Go to Line") == 1) {
-        show_goto();
-        return;
-    }
-    if (text_same(label, "Comment") == 1) {
-        handle(state->run("comment"));
-        return;
-    }
-    if (text_same(label, "Block Comment") == 1) {
-        handle(state->run("block-comment"));
-        return;
-    }
-    if (text_same(label, "Indent") == 1) {
-        handle(state->run("indent"));
-        return;
-    }
-    if (text_same(label, "Outdent") == 1) {
-        handle(state->run("outdent"));
-        return;
-    }
-    if (text_same(label, "Strip Trailing Spaces") == 1) {
-        handle(state->run("strip-trailing-spaces"));
-        return;
-    }
-    if (text_same(label, "Insert at Column") == 1) {
-        handle(state->run("insert-column"));
-        return;
-    }
-    if (text_same(label, "Delete at Column") == 1) {
-        handle(state->run("delete-column"));
-        return;
-    }
-    if (text_same(label, "Insert Date") == 1) {
-        handle(state->run("plugin-time"));
-        return;
-    }
-    if (text_same(label, "Toggle Debug") == 1) {
-        handle(state->run("plugin-debug"));
-        return;
-    }
-    if (text_same(label, "Line Numbers") == 1) {
-        handle(state->run("show-line-numbers"));
-        return;
-    }
-    if (text_same(label, "Whitespace") == 1) {
-        handle(state->run("show-whitespace"));
-        return;
-    }
-    if (text_same(label, "Line Ends") == 1) {
-        handle(state->run("show-line-ends"));
-        return;
-    }
-    if (text_same(label, "Indent Markers") == 1) {
-        handle(state->run("show-indent-markers"));
-        return;
-    }
-    if (text_same(label, "Project Manager") == 1) {
-        handle(state->run("show-project-manager"));
-        return;
-    }
-    if (text_same(label, "New Project") == 1) {
-        show_folder(1);
-        return;
-    }
-    if (text_same(label, "Open Project") == 1) {
-        show_folder(2);
-        return;
-    }
-    if (text_same(label, "Close Project") == 1) {
-        handle(state->project_close());
-        return;
-    }
-    if (text_same(label, "Save Project") == 1) {
-        handle(state->project_save());
-        return;
-    }
-    if (text_same(label, "Save Project As") == 1) {
-        show_folder(3);
-        return;
-    }
-    if (text_same(label, "Delete Project") == 1) {
-        handle(state->project_delete());
-        return;
-    }
-    if (text_same(label, "Configure Exclusions") == 1) {
-        show_exclude();
-        return;
-    }
-    if (text_same(label, "Preferences") == 1) {
-        state->run("preferences");
-        show_prefs();
-        return;
-    }
-    if (text_same(label, "About") == 1) {
-        state->run("about");
-        show_about();
-        return;
+    handle(state->run(id));
+    if (state->quit_ready() == 1) {
+        uiLive = 0;
+        mainWindow->close();
     }
 }
 

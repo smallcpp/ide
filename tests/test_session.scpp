@@ -137,6 +137,120 @@ int main(void) {
     expect(session->run("about") == IDE_OK, "about");
     expect(session->show_about() == 1, "about flag");
     expect(session->run("open") == IDE_CHOOSE_OPEN, "chooser");
+    {
+        char matched[IDE_PATH];
+        char sub[IDE_PATH];
+        long number;
+
+        number = 0;
+        matched[0] = 0;
+        expect(error_match(
+                        "%p:%l:",
+                        "a.c:3: err",
+                        matched,
+                        IDE_PATH,
+                        &number) == 1,
+                "match gcc");
+        expect(number == 3, "match line");
+        expect(text_same(matched, "a.c") == 1, "match path");
+        expect(error_match(
+                        "%p:%l:",
+                        "make: a.c:8: e",
+                        matched,
+                        IDE_PATH,
+                        &number) == 1,
+                "match later");
+        expect(text_same(matched, "a.c") == 1, "later path");
+        expect(number == 8, "later line");
+        expect(error_match(
+                        "%p(%l)",
+                        "foo.c(8): hi",
+                        matched,
+                        IDE_PATH,
+                        &number) == 1,
+                "match paren");
+        expect(number == 8, "paren line");
+        expect(error_match(
+                        "%p:%l:",
+                        "hello",
+                        matched,
+                        IDE_PATH,
+                        &number) == 0,
+                "no match");
+    }
+    session->set_query("beta");
+    expect(session->run("find-project") == 1, "run search");
+    expect(session->message_page() == 0, "search page");
+    expect(session->take_message_jump() == 1, "search jump");
+    expect(session->run("goto-line") == IDE_OK, "goto command");
+    expect(session->show_goto() == 1, "goto flag");
+    expect(session->run("focus-search") == IDE_OK, "focus search");
+    expect(session->message_page() == 0, "focus page");
+    expect(text_same(session->build_label(0), "Compile") == 1,
+            "default label");
+    expect(session->run("build-compile") == IDE_FAILED,
+            "no command");
+    expect(text_same(session->error(), "no command") == 1,
+            "no command text");
+    session->settings()->set_string(
+            "build.compile_command",
+            "pwd -P");
+    expect(session->run("build-compile") == IDE_OK, "pwd");
+    expect(text_starts(
+                    session->build_output(),
+                    session->project()->root()) == 1,
+            "cwd root");
+    expect(session->message_page() == 2, "build page");
+    path_join(side, IDE_PATH, root, "sub");
+    expect(ensure_dir(side) == 1, "sub dir");
+    text_copy(path, IDE_PATH, side);
+    session->project()->config()->set(
+            "build.compile_directory",
+            path);
+    session->project()->config()->set(
+            "build.compile_command",
+            "pwd -P");
+    expect(session->run("build-compile") == IDE_OK, "pwd sub");
+    expect(text_starts(session->build_output(), path) == 1,
+            "cwd sub");
+    session->project()->config()->set(
+            "build.compile_directory",
+            "");
+    session->project()->config()->set(
+            "build.compile_command",
+            "printf 'proj.c:4: p\\n'");
+    expect(session->run("build-compile") == IDE_OK, "printf");
+    expect(session->build_count() == 1, "one error");
+    expect(session->build_line(0) == 4, "error line");
+    expect(text_has(session->build_path(0), "proj.c") == 1,
+            "error path");
+    expect(text_has(session->build_output(), "proj.c:4:") == 1,
+            "raw output");
+    session->project()->config()->set(
+            "build.error_regex",
+            "%p(%l)");
+    session->project()->config()->set(
+            "build.compile_command",
+            "printf 'foo.c(8): hi\\n'");
+    expect(session->run("build-compile") == IDE_OK, "paren build");
+    expect(session->build_line(0) == 8, "paren build line");
+    expect(text_has(session->build_path(0), "foo.c") == 1,
+            "paren build path");
+    session->settings()->set_string(
+            "build.compile_label",
+            "Make");
+    expect(text_same(session->build_label(0), "Make") == 1,
+            "user label");
+    session->project()->config()->set(
+            "build.compile_label",
+            "Proj");
+    expect(text_same(session->build_label(0), "Proj") == 1,
+            "project label");
+    expect(session->run("build-run") == IDE_FAILED, "empty run");
+    expect(session->run("focus-messages") == IDE_OK,
+            "focus messages");
+    expect(session->message_page() == 2, "messages stay");
+    expect(session->take_message_jump() == 1, "messages jump");
     if (failures == 0) {
         print("test-session ok\n");
         return 0;
