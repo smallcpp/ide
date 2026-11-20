@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+A fresh configuration installs `bin/ide` to `$HOME/opt/smallcpp`.
+The program is `$HOME/opt/smallcpp/bin/ide`. An absolute prefix
+argument still selects another prefix for that run.
+
 Class definitions live in `.shpp` headers. Method bodies written
 outside the class are in `.scpp` files that `build` compiles and
 links. No file includes a `.scpp`.
