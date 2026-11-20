@@ -35,8 +35,8 @@ build products in the checkout. It leaves an installed copy where
 it is.
 
 `install` with no argument uses the prefix selected at
-configuration. A fresh configuration installs to `$HOME/opt/ide`.
-The program is `$HOME/opt/ide/bin/ide`. `install /absolute/path`
+configuration. A fresh configuration installs to `$HOME/opt/smallcpp`.
+The program is `$HOME/opt/smallcpp/bin/ide`. `install /absolute/path`
 and `install --prefix /absolute/path` install to that prefix for
 this run. From the checkout root, `scripts/install` and
 `scripts/install /absolute/path` are the same commands. A relative

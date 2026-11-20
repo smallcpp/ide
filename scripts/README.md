@@ -13,8 +13,8 @@ or install.
   CMake build type. `debug` and `profile` pass `-g` to `scpp`.
 - `install [prefix]` builds `ide` and installs `bin/ide`. With no
   argument the prefix is the one selected at configuration. A fresh
-  configuration uses `$HOME/opt/ide`, so the program is
-  `$HOME/opt/ide/bin/ide`. A prefix argument, or `--prefix` and a
+  configuration uses `$HOME/opt/smallcpp`, so the program is
+  `$HOME/opt/smallcpp/bin/ide`. A prefix argument, or `--prefix` and a
   prefix, installs to that absolute path for this run. A relative
   prefix is rejected. `clean` does not remove the installed program.
 - `clean` removes `bin/`, `build/`, and `lib/`.
